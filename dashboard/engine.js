@@ -37,7 +37,7 @@ const DB = {
     {id:'vp1',visit_id:'v1',companion_id:'c1',hours:2,rate:14,amount:28,status:'accrued'},
   ],
   payouts: [],
-  features: {stripe:'off', reminders:'off', documents:'on', reporting:'on'},
+  features: {stripe:'off', reminders:'off', documents:'on', reporting:'on', ai:'off'},
   documents: [
     {id:'d1',kind:'dbs',companion_id:'c1',label:'DBS certificate',expires_on:'2029-03-01'},
   ],
@@ -274,7 +274,26 @@ function viewVisits(){
   <div class="panel"><div class="panel-h"><h3>Recent notes to family</h3></div><div class="panel-b" style="padding:16px 20px">${notes||'<div class="empty">No notes yet.</div>'}</div></div>`;
 }
 
-/* ---------- VISIT COMPLETION (the spine) ---------- */
+/* ---------- AI ASSIST (UI layer; dormant unless feature.ai on + configured) ---------- */
+function aiEnabled(){ return DB.features && DB.features.ai==='on'; }
+async function aiDraftNote(visitId, userName){
+  const ta=$('#noteText'); if(!ta) return;
+  const rough=ta.value.trim();
+  if(!rough){ ta.placeholder='Jot a few rough words first, then let AI shape them…'; ta.focus(); return; }
+  const btn=$('#aiDraftBtn'); if(btn){btn.textContent='Drafting…';btn.disabled=true;}
+  if(typeof aiAssist==='undefined' || !(typeof api!=='undefined'&&api.live)){
+    // demo: show a representative polished draft so you can see the feature
+    ta.value=`We had a lovely visit today. ${rough.charAt(0).toUpperCase()+rough.slice(1)}. ${userName.split(' ')[0]} was in good spirits and we had plenty to talk about — I'll look forward to next time.`;
+    if(btn){btn.textContent='✨ AI draft';btn.disabled=false;}
+    return;
+  }
+  const out=await aiAssist('note_draft',{user_name:userName,rough});
+  if(out.error){ alert(out.error==='AI not configured'?'AI isn’t set up yet — turn it on in Settings and add your API key.':'AI error: '+out.error); }
+  else if(out.result){ ta.value=out.result; }
+  if(btn){btn.textContent='✨ AI draft';btn.disabled=false;}
+}
+
+
 async function completeVisit(visitId){
   const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
   if(typeof api!=='undefined' && api.live){
@@ -566,6 +585,7 @@ function viewSettings(){
     ${feat('reminders','Visit reminders','Automatically email families and companions 24h before each visit.','email (Resend) must be configured')}
     ${feat('documents','Document storage','Attach DBS, ID, references and agreements to companion and client records.','create a “companio-docs” storage bucket in Supabase')}
     ${feat('reporting','Trend reporting','Revenue, cost, utilisation and retention over time.','nothing — fills automatically as data grows')}
+    ${feat('ai','AI assist','Draft notes to family, explain matches, prep companions for visits, and triage enquiries — you always review before anything is sent.','deploy the ai-assist function + add your free Gemini API key')}
   </div></div>
   <div class="panel"><div class="panel-h"><h3>Documents on file</h3></div><div class="panel-b">
     ${DB.documents.length?DB.documents.map(d=>{const c=DB.companions.find(x=>x.id===d.companion_id);return `<div class="row" style="padding:12px 20px;display:flex;justify-content:space-between"><span><b>${d.label}</b> <span class="sub2">· ${c?c.full_name:''}</span></span><span class="chip ${d.expires_on&&new Date(d.expires_on)<new Date()?'bad':''}">${d.kind}${d.expires_on?' · exp '+fmt(d.expires_on):''}</span></div>`;}).join(''):'<div class="empty">No documents yet.</div>'}
@@ -625,12 +645,34 @@ async function fillMatchList(userId){
   if(!ms) ms=suggestMatches(userId,4);   // local fallback
   const box=$('#matchList'); if(!box) return;
   if(!ms.length){ box.innerHTML='<div class="empty">No active companions to match yet.</div>'; return; }
-  box.innerHTML=ms.map(m=>`<div class="matchrow">
+  const aiBtn = aiEnabled() ? `<button class="btn sm" id="aiFitBtn" style="margin-bottom:10px" onclick="aiExplainMatches('${userId}')">✨ AI: explain the fit</button>` : '';
+  box.innerHTML=aiBtn+ms.map(m=>`<div class="matchrow" data-cid="${m.companion.id}">
     <div class="ring" style="--p:${m.score}"><b>${m.score}</b></div>
     <div class="body"><div class="name">${m.companion.full_name}</div>
-      <div class="reasons">${(m.reasons||[]).slice(0,3).join(' · ')}</div></div>
+      <div class="reasons">${(m.reasons||[]).slice(0,3).join(' · ')}</div>
+      <div class="ai-reason" style="font-size:.8rem;color:var(--wheat-deep);margin-top:4px"></div></div>
     <button class="btn sm primary" onclick="introduce('${userId}','${m.companion.id}','${m.companion.full_name.replace(/'/g,"")}')">Introduce</button>
   </div>`).join('');
+}
+async function aiExplainMatches(userId){
+  const btn=$('#aiFitBtn'); if(btn){btn.textContent='Thinking…';btn.disabled=true;}
+  const u=DB.service_users.find(x=>x.id===userId);
+  const cands=DB.companions.filter(c=>c.status==='active').map(c=>({companion_id:c.id,full_name:c.full_name,interests:c.interests,temperament:c.temperament,offers:c.offers,bio:c.bio}));
+  let parsed=null;
+  if(typeof aiAssist!=='undefined' && typeof api!=='undefined' && api.live){
+    const out=await aiAssist('match_explain',{user:{full_name:u.full_name,interests:u.interests,temperament:u.temperament,notes:u.notes},candidates:cands});
+    if(out.error){ alert('AI error: '+out.error); if(btn){btn.textContent='✨ AI: explain the fit';btn.disabled=false;} return; }
+    try{ parsed=JSON.parse(out.result); }catch(e){}
+  }
+  if(!parsed){
+    // demo: representative reasoning
+    parsed=cands.map(c=>{const shared=(u.interests||[]).filter(i=>(c.interests||[]).includes(i));
+      return {companion_id:c.companion_id,fit:shared.length>=3?'strong':shared.length>=1?'good':'weak',
+        reason:shared.length?`Natural common ground — both enjoy ${shared.slice(0,2).join(' and ')}, and ${c.temperament} suits ${u.full_name.split(' ')[0]}.`:`Less overlap in interests, though ${c.temperament} company could still work.`};});
+  }
+  parsed.forEach(p=>{const row=document.querySelector(`.matchrow[data-cid="${p.companion_id}"] .ai-reason`);
+    if(row) row.textContent='✨ '+(p.fit?p.fit.toUpperCase()+' — ':'')+p.reason;});
+  if(btn){btn.textContent='✨ AI: explain the fit';btn.disabled=false;}
 }
 async function introduce(userId,compId,name){
   if(typeof api!=='undefined'){ try{ await api.introduceMatch(DB,userId,compId); }catch(e){} }

@@ -147,3 +147,25 @@ const api = {
     return null; // signals engine.js to use its local matcher
   },
 };
+
+/* ---------- AI assist (dormant until deployed + enabled) ---------- */
+async function aiAssist(task, data) {
+  // live: call the ai-assist Edge Function. demo/not-configured: signal unavailable.
+  if (!IS_LIVE) return { error: 'demo' };
+  let base = '';
+  try {
+    const rows = await supa.select('app_settings', `select=value&key=eq.ai_functions_url`);
+    base = rows && rows[0] ? rows[0].value : '';
+  } catch (e) {}
+  if (!base) return { error: 'AI not configured' };
+  try {
+    const r = await fetch(`${base}/ai-assist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (SB.key || '') },
+      body: JSON.stringify({ task, data }),
+    });
+    const j = await r.json();
+    if (!r.ok) return { error: j.error || 'AI request failed' };
+    return { result: j.result };
+  } catch (e) { return { error: String(e) }; }
+}

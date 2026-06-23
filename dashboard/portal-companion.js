@@ -14,6 +14,7 @@ const DAYS=['mon','tue','wed','thu','fri','sat','sun'];
 /* in-memory state for this companion */
 let ME=null;            // companions row
 let VISITS=[], NOTES=[], AVAIL=[], USERS={}, PAY=[];
+let DB_FEATURES={ai:'off'};   // loaded from app_settings in live mode
 
 /* ---------- DEMO DATA ---------- */
 const DEMO = {
@@ -36,7 +37,7 @@ async function boot(){
       if(!me){ return showLogin('This login isn’t linked to a companion profile.'); }
     }catch(e){ return showLogin(); }
   } else {
-    ME=DEMO.me; VISITS=DEMO.visits; NOTES=DEMO.notes; AVAIL=DEMO.avail; PAY=DEMO.pay;
+    ME=DEMO.me; VISITS=DEMO.visits; NOTES=DEMO.notes; AVAIL=DEMO.avail; PAY=DEMO.pay; DB_FEATURES={ai:'on'};
   }
   renderApp();
 }
@@ -55,6 +56,7 @@ async function loadMe(){
   ]);
   VISITS = (visits||[]).map(v=>({...v, user_name: v.bookings?.service_users?.full_name || 'Service user'}));
   AVAIL = avail||[]; NOTES = notes||[]; PAY = pay||[];
+  try{ const f=await supa.select('app_settings',`select=value&key=eq.feature.ai`); DB_FEATURES.ai = (f&&f[0]&&f[0].value)||'off'; }catch(e){ DB_FEATURES.ai='off'; }
   return ME;
 }
 
@@ -167,17 +169,37 @@ function viewAvail(){
 /* ---------- write a note ---------- */
 function openNote(visitId,userName){
   const v=$('#tabview');
+  const aiBtn = (ME && DB_FEATURES.ai==='on')
+    ? `<button class="btn" id="aiDraftBtn" onclick="aiDraftNote('${visitId}','${userName.replace(/'/g,'')}')">✨ AI draft</button>` : '';
   v.insertAdjacentHTML('afterbegin',`<div class="panel" id="noteForm" style="border-color:var(--wheat)">
     <div class="panel-h"><h3>Note to ${userName}’s family</h3></div>
     <div style="padding:16px 20px">
-      <p class="muted" style="margin-top:0;font-size:.88rem">A warm, brief update on how the visit went. The family will read this — keep it kind and specific. Nothing medical.</p>
-      <textarea id="noteText" rows="4" placeholder="e.g. We did the crossword over tea and had a lovely chat about the garden…"></textarea>
+      <p class="muted" style="margin-top:0;font-size:.88rem">A warm, brief update on how the visit went. The family will read this — keep it kind and specific. Nothing medical.${aiBtn?' Jot rough notes and tap ✨ AI draft to shape them — you can edit before sending.':''}</p>
+      <textarea id="noteText" rows="4" placeholder="e.g. crossword, two teas, talked about the garden…"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn primary" onclick="saveNote('${visitId}')">Send to family</button>
+        ${aiBtn}
         <button class="btn" onclick="renderTab()">Cancel</button>
       </div>
     </div></div>`);
   $('#noteText').focus();
+}
+async function aiDraftNote(visitId,userName){
+  const ta=$('#noteText'); if(!ta) return;
+  const rough=ta.value.trim();
+  if(!rough){ ta.placeholder='Jot a few rough words first, then tap AI draft…'; ta.focus(); return; }
+  const btn=$('#aiDraftBtn'); if(btn){btn.textContent='Drafting…';btn.disabled=true;}
+  let done=false;
+  if(typeof aiAssist!=='undefined' && typeof IS_LIVE!=='undefined' && IS_LIVE){
+    const out=await aiAssist('note_draft',{user_name:userName,rough});
+    if(out.error){ alert(out.error==='AI not configured'?'AI isn’t set up yet.':'AI error: '+out.error); }
+    else if(out.result){ ta.value=out.result; done=true; }
+  }
+  if(!done && !(typeof IS_LIVE!=='undefined'&&IS_LIVE)){
+    // demo preview so the feature is visible without a live key
+    ta.value=`We had a lovely visit today — ${rough}. ${userName.split(' ')[0]} was in good spirits and we had plenty to talk about. Looking forward to next time.`;
+  }
+  if(btn){btn.textContent='✨ AI draft';btn.disabled=false;}
 }
 async function saveNote(visitId){
   const text=$('#noteText').value.trim();
