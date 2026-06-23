@@ -112,8 +112,57 @@ function renderNav(){
 }
 
 /* ---------- VIEWS ---------- */
-function head(eyebrow,title,sub){
-  return `<div class="head"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>${sub?`<p>${sub}</p>`:''}</div></div>`;
+/* ---------- EDITABLE TEXT LAYER ----------
+   Headings, tab descriptions and brand copy can be edited live and saved.
+   Overrides are keyed (e.g. 'overview.title') and stored in app_settings as
+   'text.<key>' in live mode, or in TEXT_OVERRIDES in demo. Buttons, data and
+   structural labels are deliberately NOT editable, to keep the tool safe.    */
+let EDIT_MODE=false;
+let TEXT_OVERRIDES={};   // key -> custom text
+function txt(key, fallback){
+  return (TEXT_OVERRIDES[key]!=null && TEXT_OVERRIDES[key]!=='') ? TEXT_OVERRIDES[key] : fallback;
+}
+function editable(key, fallback, tag){
+  const val = txt(key, fallback);
+  if(!EDIT_MODE) return val;
+  // contenteditable span that saves on blur
+  return `<${tag||'span'} class="ed" contenteditable="true" data-key="${key}" data-fallback="${encodeURIComponent(fallback)}"
+    onblur="saveText(this)" onkeydown="if(event.key==='Enter'&&'${tag||'span'}'!=='div'){event.preventDefault();this.blur();}">${val}</${tag||'span'}>`;
+}
+async function saveText(node){
+  const key=node.dataset.key;
+  const fallback=decodeURIComponent(node.dataset.fallback||'');
+  const newVal=node.innerText.trim();
+  if(newVal===txt(key,fallback)) return;           // unchanged
+  if(newVal===fallback || newVal===''){ delete TEXT_OVERRIDES[key]; }
+  else { TEXT_OVERRIDES[key]=newVal; }
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.rpc('set_text',{p_key:key, p_value:(newVal===fallback?'':newVal)}); }
+    catch(e){ /* non-fatal: keep local */ }
+  }
+}
+async function loadTextOverrides(){
+  if(typeof api!=='undefined' && api.live){
+    try{
+      const rows=await supa.select('app_settings',`select=key,value&key=like.text.*`);
+      (rows||[]).forEach(r=>{ TEXT_OVERRIDES[r.key.replace(/^text\./,'')]=r.value; });
+    }catch(e){}
+  }
+}
+function toggleEditMode(){
+  EDIT_MODE=!EDIT_MODE;
+  const btn=$('#editToggle'); if(btn){ btn.textContent=EDIT_MODE?'✓ Done editing':'✏️ Edit text'; btn.classList.toggle('on',EDIT_MODE); }
+  document.body.classList.toggle('editing',EDIT_MODE);
+  render();
+}
+
+function head(eyebrow,title,sub,key){
+  key = key || (title||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+  return `<div class="head"><div>
+    <div class="eyebrow">${editable(key+'.eyebrow',eyebrow)}</div>
+    <h1>${editable(key+'.title',title)}</h1>
+    ${sub?`<p>${editable(key+'.sub',sub,'div')}</p>`:''}
+  </div></div>`;
 }
 /* chart lifecycle — destroy any live charts before re-rendering, redraw after */
 let CHARTS=[];
@@ -728,6 +777,7 @@ async function boot(){
     try {
       $('#view').innerHTML = '<div class="empty">Loading your data…</div>';
       await loadAll(DB);
+      await loadTextOverrides();
     } catch(e){
       $('#view').innerHTML = '<div class="empty">Could not load data: '+e.message+'</div>'; return;
     }
