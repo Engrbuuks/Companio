@@ -8,11 +8,11 @@
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
   companions: [
-    {id:'c1',full_name:'Linda Hartley',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,bio:'A natural conversationalist who never runs out of stories.'},
-    {id:'c2',full_name:'Grace Owens',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,bio:'Always up for a walk in the park or the garden centre.'},
-    {id:'c3',full_name:'Margaret Hill',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,bio:'Cards, crosswords and a competitive streak.'},
-    {id:'c4',full_name:'Eleanor Voss',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
-    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,bio:'Awaiting DBS clearance.'},
+    {id:'c1',full_name:'Linda Hartley',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
+    {id:'c2',full_name:'Grace Owens',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
+    {id:'c3',full_name:'Margaret Hill',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
+    {id:'c4',full_name:'Eleanor Voss',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
+    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'Awaiting DBS clearance.'},
   ],
   requesters: [
     {id:'r1',full_name:'Sarah Mensah',email:'sarah@example.com',phone:'07700 900201',status:'active',source:'matcher',
@@ -480,7 +480,7 @@ function actionPanel(){
   </div>`).join('')}</div></div>`;
 }
 
-/* ---------- RECRUITING PIPELINE ---------- */
+/* ---------- RECRUITING PIPELINE (end to end) ---------- */
 function viewPipeline(){
   const stages=[
     {key:'applicant',label:'Applied',hint:'New applications'},
@@ -490,7 +490,7 @@ function viewPipeline(){
   ];
   const cols=stages.map(st=>{
     const people=DB.companions.filter(c=>c.status===st.key);
-    return `<div style="flex:1;min-width:200px">
+    return `<div style="flex:1;min-width:210px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div><div style="font-weight:800;color:var(--aubergine-dark)">${st.label}</div><div class="sub2">${st.hint}</div></div>
         <span class="chip wheat">${people.length}</span></div>
@@ -500,23 +500,109 @@ function viewPipeline(){
           <span class="chip ${dbsChip(c.dbs)}">DBS ${c.dbs}</span>
           ${c.references_ok?'<span class="chip good">refs ✓</span>':'<span class="chip warn">refs pending</span>'}
         </div>
-        ${st.key!=='active'?`<div style="margin-top:10px;display:flex;gap:6px">${nextStageBtn(c,st.key)}</div>`:''}
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap" onclick="event.stopPropagation()">${stageActions(c,st.key)}</div>
       </div>`).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None</div>`}
     </div>`;
   }).join('');
+  // offboarded shown separately (the exit), collapsed
+  const off=DB.companions.filter(c=>c.status==='offboarded');
+  const rejected=DB.companions.filter(c=>c.status==='rejected');
   return head('Supply','Recruiting pipeline','Your funnel from application to active companion. This is the gate the whole business depends on — keep it moving.')+`
-  <div class="panel"><div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>`;
+  <div class="panel"><div class="panel-h">
+    <h3>Pipeline</h3>
+    <button class="btn sm primary" onclick="openAddApplicant()">+ Add applicant</button>
+  </div>
+  <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>
+  ${(off.length||rejected.length)?`<div class="panel"><div class="panel-h"><h3>Not active</h3></div><div class="panel-b" style="padding:10px 20px">
+    ${off.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}</span></span><span class="chip">offboarded</span></div>`).join('')}
+    ${rejected.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}</span></span><span class="chip bad">not suitable</span></div>`).join('')}
+  </div></div>`:''}`;
 }
-function nextStageBtn(c,stage){
-  const next={applicant:'vetting',vetting:'active',paused:'active'}[stage];
-  if(!next) return '';
-  const label={vetting:'Move to vetting',active:'Mark active'}[next];
-  return `<button class="btn sm primary" onclick="event.stopPropagation();moveStage('${c.id}','${next}')">${label}</button>`;
+
+// per-stage action buttons (forward + the exits)
+function stageActions(c,stage){
+  const fwd={applicant:'vetting',vetting:'active',paused:'active'}[stage];
+  const fwdLabel={vetting:'→ Vetting',active:'→ Mark active'}[fwd];
+  let btns='';
+  if(fwd) btns+=`<button class="btn sm primary" onclick="moveStage('${c.id}','${fwd}')">${fwdLabel}</button>`;
+  if(stage==='active') btns+=`<button class="btn sm" onclick="moveStage('${c.id}','paused')">Pause</button>
+    <button class="btn sm" style="border-color:var(--bad);color:var(--bad)" onclick="moveStage('${c.id}','offboarded')">Offboard</button>`;
+  if(stage==='applicant'||stage==='vetting') btns+=`<button class="btn sm" style="border-color:var(--bad);color:var(--bad)" onclick="moveStage('${c.id}','rejected')">Not suitable</button>`;
+  if(stage==='paused') btns+=`<button class="btn sm" style="border-color:var(--bad);color:var(--bad)" onclick="moveStage('${c.id}','offboarded')">Offboard</button>`;
+  return btns;
 }
+
 async function moveStage(id,status){
   const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  // SAFETY GATE: warn (but allow override) before marking someone active
+  if(status==='active'){
+    const issues=[];
+    if(c.dbs!=='cleared') issues.push(`DBS is "${c.dbs}", not cleared`);
+    if(!c.references_ok) issues.push('references not yet confirmed');
+    if(issues.length){
+      const ok=confirm(`⚠ Safeguarding check for ${c.full_name}\n\nThis person will visit vulnerable elderly people, but:\n• ${issues.join('\n• ')}\n\nMark them active anyway?`);
+      if(!ok) return;
+    }
+  }
+  if(status==='rejected'){
+    if(!confirm(`Mark ${c.full_name} as not suitable? They’ll move out of the active pipeline.`)) return;
+  }
+  if(status==='offboarded'){
+    if(!confirm(`Offboard ${c.full_name}? They’ll no longer be available for visits.`)) return;
+  }
   if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,{status}); }catch(e){ alert(e.message); return; } }
   c.status=status; render();
+}
+
+/* ---------- ADD APPLICANT (the entrance) ---------- */
+function openAddApplicant(){
+  openDrawer(`<div class="drawer-h"><div><h2>New applicant</h2>
+    <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">Add someone who’s applied to become a companion</div></div>
+    <button class="x" onclick="closeDrawer()">×</button></div>
+  <div class="drawer-b">
+    <label style="font-weight:700;font-size:.85rem">Full name *</label>
+    <input id="ap_name" placeholder="e.g. Patricia Adeyemi" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px">
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Town</label>
+        <input id="ap_city" placeholder="Guildford" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px"></div>
+      <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Postcode</label>
+        <input id="ap_pc" placeholder="GU1 3AA" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px"></div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Phone</label>
+        <input id="ap_phone" placeholder="07700 900000" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px"></div>
+      <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Email</label>
+        <input id="ap_email" type="email" placeholder="name@email.com" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px"></div>
+    </div>
+    <label style="font-weight:700;font-size:.85rem">Offers</label>
+    <select id="ap_offers" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px">
+      <option value="both">Both companionship & help</option>
+      <option value="companionship">Companionship only</option>
+      <option value="help">Practical help only</option>
+    </select>
+    <label style="font-weight:700;font-size:.85rem">A note (optional)</label>
+    <textarea id="ap_bio" rows="2" placeholder="Where they came from, first impressions…" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 14px"></textarea>
+    <button class="btn primary" style="width:100%;padding:11px" onclick="saveApplicant()">Add to pipeline</button>
+  </div>`);
+  setTimeout(()=>{const n=document.getElementById('ap_name');if(n)n.focus();},100);
+}
+async function saveApplicant(){
+  const name=$('#ap_name').value.trim();
+  if(!name){ $('#ap_name').focus(); alert('A name is needed.'); return; }
+  const row={
+    full_name:name, city:$('#ap_city').value.trim(), postcode:$('#ap_pc').value.trim().toUpperCase(),
+    phone:$('#ap_phone').value.trim(), email:$('#ap_email').value.trim(),
+    offers:$('#ap_offers').value, bio:$('#ap_bio').value.trim(),
+    status:'applicant', dbs:'none', references_ok:false, hourly_pay:14, max_clients:8,
+    interests:[], temperament:'', has_car:false,
+  };
+  if(typeof api!=='undefined' && api.live){
+    try{ const saved=await supa.insert('companions',row); DB.companions.push(saved); }
+    catch(e){ alert('Could not save: '+e.message); return; }
+  } else {
+    DB.companions.push({...row,id:'c'+Date.now()});
+  }
+  closeDrawer(); current='pipeline'; renderNav(); render();
 }
 
 /* ---------- SCHEDULE (week calendar) ---------- */
