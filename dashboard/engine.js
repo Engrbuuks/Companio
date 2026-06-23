@@ -8,11 +8,11 @@
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
   companions: [
-    {id:'c1',full_name:'Linda Hartley',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
-    {id:'c2',full_name:'Grace Owens',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
-    {id:'c3',full_name:'Margaret Hill',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
-    {id:'c4',full_name:'Eleanor Voss',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
-    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'Awaiting DBS clearance.'},
+    {id:'c1',full_name:'Linda Hartley',source:'website',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
+    {id:'c2',full_name:'Grace Owens',source:'referral',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
+    {id:'c3',full_name:'Margaret Hill',source:'flyer',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
+    {id:'c4',full_name:'Eleanor Voss',source:'website',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
+    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',phone:'07700 900345',email:'tom.bridges@email.com',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,source:'referral',last_contact_at:'2026-06-10',next_action:'Chase DBS application',next_action_due:'2026-06-20',stage_changed_at:'2026-06-08',bio:'Awaiting DBS clearance.'},
   ],
   requesters: [
     {id:'r1',full_name:'Sarah Mensah',email:'sarah@example.com',phone:'07700 900201',status:'active',source:'matcher',
@@ -482,41 +482,125 @@ function actionPanel(){
 
 /* ---------- RECRUITING PIPELINE (end to end) ---------- */
 function viewPipeline(){
+  const TARGET=8;  // companions you're aiming for
   const stages=[
-    {key:'applicant',label:'Applied',hint:'New applications'},
-    {key:'vetting',label:'Vetting',hint:'DBS + references'},
-    {key:'active',label:'Active',hint:'Ready to work'},
-    {key:'paused',label:'Paused',hint:'On hold'},
+    {key:'applicant',label:'Applied',hint:'New applications',accent:'var(--lilac)'},
+    {key:'vetting',label:'Vetting',hint:'DBS + references',accent:'var(--wheat-deep)'},
+    {key:'active',label:'Active',hint:'Ready to work',accent:'var(--good)'},
+    {key:'paused',label:'Paused',hint:'On hold',accent:'var(--muted)'},
   ];
+  const active=DB.companions.filter(c=>c.status==='active').length;
+  const inVetting=DB.companions.filter(c=>c.status==='vetting'||c.status==='applicant').length;
+  const pct=Math.min(100,Math.round(active/TARGET*100));
+
+  // follow-up: anyone in applicant/vetting whose next_action is due, or stuck >14 days
+  const today=new Date();
+  const daysSince=d=>d?Math.floor((today-new Date(d))/86400000):null;
+  const followUps=DB.companions.filter(c=>['applicant','vetting'].includes(c.status)).map(c=>{
+    const dueIn=c.next_action_due?Math.floor((new Date(c.next_action_due)-today)/86400000):null;
+    const stuck=daysSince(c.stage_changed_at);
+    const overdue=dueIn!=null && dueIn<0;
+    const dueSoon=dueIn!=null && dueIn>=0 && dueIn<=2;
+    const stale=stuck!=null && stuck>14;
+    return {c,dueIn,stuck,overdue,dueSoon,stale,flag:overdue||dueSoon||stale};
+  }).filter(x=>x.flag).sort((a,b)=>(a.dueIn??99)-(b.dueIn??99));
+
+  const sourceChip=s=>s?`<span class="chip" style="background:rgba(155,138,168,.16);color:var(--aubergine);border:none">${cap(s)}</span>`:'';
+
   const cols=stages.map(st=>{
     const people=DB.companions.filter(c=>c.status===st.key);
-    return `<div style="flex:1;min-width:210px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    return `<div style="flex:1;min-width:230px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid ${st.accent}">
         <div><div style="font-weight:800;color:var(--aubergine-dark)">${st.label}</div><div class="sub2">${st.hint}</div></div>
-        <span class="chip wheat">${people.length}</span></div>
-      ${people.map(c=>`<div class="ip-card" style="padding:14px;margin-bottom:10px;cursor:pointer" onclick="openCompanion('${c.id}')">
-        <div class="name">${c.full_name}</div><div class="sub2">${c.city||''}</div>
-        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="chip" style="background:${st.accent};color:#fff;border:none;font-weight:800">${people.length}</span></div>
+      ${people.map(c=>{
+        const dueIn=c.next_action_due?Math.floor((new Date(c.next_action_due)-today)/86400000):null;
+        const fuChip = c.next_action ? `<div style="margin-top:9px;padding:7px 9px;background:var(--mist);border-radius:7px;border-left:3px solid ${dueIn!=null&&dueIn<0?'var(--bad)':'var(--wheat)'}">
+          <div style="font-size:.78rem;font-weight:700;color:var(--aubergine-dark)">${c.next_action}</div>
+          ${c.next_action_due?`<div class="sub2" style="font-size:.72rem">${dueIn<0?`${-dueIn}d overdue`:dueIn===0?'due today':`due in ${dueIn}d`}</div>`:''}</div>` : '';
+        return `<div class="ip-card" style="padding:13px 14px;margin-bottom:11px;cursor:pointer" onclick="openCompanion('${c.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div><div class="name">${c.full_name}</div><div class="sub2">${c.city||''}</div></div>
+          ${sourceChip(c.source)}
+        </div>
+        <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">
           <span class="chip ${dbsChip(c.dbs)}">DBS ${c.dbs}</span>
           ${c.references_ok?'<span class="chip good">refs ✓</span>':'<span class="chip warn">refs pending</span>'}
         </div>
-        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap" onclick="event.stopPropagation()">${stageActions(c,st.key)}</div>
-      </div>`).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None</div>`}
+        ${(c.phone||c.email)?`<div style="margin-top:9px;display:flex;gap:8px" onclick="event.stopPropagation()">
+          ${c.phone?`<a href="tel:${c.phone}" class="sub2" style="color:var(--aubergine);font-weight:700;text-decoration:none">📞 ${c.phone}</a>`:''}
+          ${c.email?`<a href="mailto:${c.email}" class="sub2" style="color:var(--aubergine);text-decoration:none">✉️</a>`:''}
+        </div>`:''}
+        ${fuChip}
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap" onclick="event.stopPropagation()">
+          ${stageActions(c,st.key)}
+          ${['applicant','vetting'].includes(st.key)?`<button class="btn sm" onclick="openFollowUp('${c.id}')">📝 Follow-up</button>`:''}
+        </div>
+      </div>`;}).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None</div>`}
     </div>`;
   }).join('');
-  // offboarded shown separately (the exit), collapsed
+
   const off=DB.companions.filter(c=>c.status==='offboarded');
   const rejected=DB.companions.filter(c=>c.status==='rejected');
+
   return head('Supply','Recruiting pipeline','Your funnel from application to active companion. This is the gate the whole business depends on — keep it moving.')+`
-  <div class="panel"><div class="panel-h">
-    <h3>Pipeline</h3>
-    <button class="btn sm primary" onclick="openAddApplicant()">+ Add applicant</button>
-  </div>
+  <div class="panel"><div class="panel-b" style="padding:18px 20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px">
+      <div style="flex:1;min-width:260px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-weight:800;color:var(--aubergine-dark)">${active} of ${TARGET} active companions</span>
+          <span class="sub2">${inVetting} in the pipeline</span></div>
+        <div style="background:var(--line);border-radius:99px;height:10px"><div style="width:${pct}%;height:10px;border-radius:99px;background:${active>=TARGET?'var(--good)':'var(--wheat)'}"></div></div>
+        <div class="sub2" style="margin-top:6px">${active>=TARGET?'You’ve hit your supply target — focus on demand.':`Recruit ${TARGET-active} more to hit your target.`}</div>
+      </div>
+      <button class="btn primary" onclick="openAddApplicant()">+ Add applicant</button>
+    </div>
+  </div></div>
+  ${followUps.length?`<div class="panel" style="border-color:var(--wheat)"><div class="panel-h"><h3>⏰ Needs follow-up</h3><span class="chip ${followUps.some(f=>f.overdue)?'bad':'warn'}">${followUps.length}</span></div>
+    <div class="panel-b">${followUps.map(f=>`<div class="row" style="padding:11px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)">
+      <div style="flex:1"><span class="name">${f.c.full_name}</span> <span class="sub2">· ${cap(f.c.status)}${f.c.source?' · '+cap(f.c.source):''}</span>
+        <div class="sub2">${f.c.next_action||'No next action set'} ${f.overdue?`<span style="color:var(--bad);font-weight:700">· ${-f.dueIn}d overdue</span>`:f.dueSoon?`<span style="color:var(--wheat-deep);font-weight:700">· due in ${f.dueIn}d</span>`:f.stale?`<span style="color:var(--muted)">· ${f.stuck}d in stage</span>`:''}</div></div>
+      ${f.c.phone?`<a href="tel:${f.c.phone}" class="btn sm">📞 Call</a>`:''}
+      <button class="btn sm" onclick="openFollowUp('${f.c.id}')">Update</button>
+    </div>`).join('')}</div></div>`:''}
+  <div class="panel"><div class="panel-h"><h3>Pipeline</h3><span class="muted" style="font-size:.82rem">tap a card for full profile</span></div>
   <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>
   ${(off.length||rejected.length)?`<div class="panel"><div class="panel-h"><h3>Not active</h3></div><div class="panel-b" style="padding:10px 20px">
     ${off.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}</span></span><span class="chip">offboarded</span></div>`).join('')}
-    ${rejected.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}</span></span><span class="chip bad">not suitable</span></div>`).join('')}
+    ${rejected.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}${c.reject_reason?' · '+c.reject_reason:''}</span></span><span class="chip bad">not suitable</span></div>`).join('')}
   </div></div>`:''}`;
+}
+
+/* ---------- FOLLOW-UP editor ---------- */
+function openFollowUp(id){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  openDrawer(`<div class="drawer-h"><div><h2>${c.full_name}</h2>
+    <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${cap(c.status)}${c.source?' · from '+cap(c.source):''}</div></div>
+    <button class="x" onclick="closeDrawer()">×</button></div>
+  <div class="drawer-b">
+    ${c.phone||c.email?`<div class="section-t">Contact</div>
+    ${c.phone?`<div class="field-row"><span class="k">Phone</span><span class="v"><a href="tel:${c.phone}" style="color:var(--aubergine);font-weight:700">${c.phone}</a></span></div>`:''}
+    ${c.email?`<div class="field-row"><span class="k">Email</span><span class="v"><a href="mailto:${c.email}" style="color:var(--aubergine)">${c.email}</a></span></div>`:''}`:''}
+    <div class="section-t">Next action</div>
+    <label style="font-weight:700;font-size:.85rem">What needs doing next?</label>
+    <input id="fu_action" value="${(c.next_action||'').replace(/"/g,'&quot;')}" placeholder="e.g. Chase DBS, call back Friday" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px">
+    <label style="font-weight:700;font-size:.85rem">Due by</label>
+    <input id="fu_due" type="date" value="${c.next_action_due||''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px">
+    <button class="btn primary" style="width:100%;padding:11px;margin-bottom:8px" onclick="saveFollowUp('${id}')">Save & mark contacted today</button>
+    <button class="btn" style="width:100%" onclick="clearFollowUp('${id}')">Clear next action (done)</button>
+  </div>`);
+}
+async function saveFollowUp(id){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  const patch={next_action:$('#fu_action').value.trim(), next_action_due:$('#fu_due').value||null, last_contact_at:new Date().toISOString()};
+  if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,patch); }catch(e){ alert(e.message); return; } }
+  Object.assign(c,patch); closeDrawer(); render();
+}
+async function clearFollowUp(id){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  const patch={next_action:null, next_action_due:null};
+  if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,patch); }catch(e){ alert(e.message); return; } }
+  Object.assign(c,patch); closeDrawer(); render();
 }
 
 // per-stage action buttons (forward + the exits)
@@ -580,6 +664,15 @@ function openAddApplicant(){
       <option value="companionship">Companionship only</option>
       <option value="help">Practical help only</option>
     </select>
+    <label style="font-weight:700;font-size:.85rem">Where did they come from?</label>
+    <select id="ap_source" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 12px">
+      <option value="website">Website</option>
+      <option value="referral">Referral / word of mouth</option>
+      <option value="flyer">Flyer / poster</option>
+      <option value="facebook">Facebook / social</option>
+      <option value="indeed">Job board (Indeed etc.)</option>
+      <option value="other">Other</option>
+    </select>
     <label style="font-weight:700;font-size:.85rem">A note (optional)</label>
     <textarea id="ap_bio" rows="2" placeholder="Where they came from, first impressions…" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin:5px 0 14px"></textarea>
     <button class="btn primary" style="width:100%;padding:11px" onclick="saveApplicant()">Add to pipeline</button>
@@ -592,7 +685,7 @@ async function saveApplicant(){
   const row={
     full_name:name, city:$('#ap_city').value.trim(), postcode:$('#ap_pc').value.trim().toUpperCase(),
     phone:$('#ap_phone').value.trim(), email:$('#ap_email').value.trim(),
-    offers:$('#ap_offers').value, bio:$('#ap_bio').value.trim(),
+    offers:$('#ap_offers').value, bio:$('#ap_bio').value.trim(), source:$('#ap_source').value,
     status:'applicant', dbs:'none', references_ok:false, hourly_pay:14, max_clients:8,
     interests:[], temperament:'', has_car:false,
   };
