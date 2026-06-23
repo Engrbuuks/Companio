@@ -10,7 +10,7 @@
    ============================================================ */
 
 const SB = {
-  url: (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) || 'https://bouyfsfcfjeordmaaaof.supabase.com',
+  url: (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) || 'https://bouyfsfcfjeordmaaaof.supabase.co',
   key: (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvdXlmc2ZjZmplb3JkbWFhYW9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3MjE5MzMsImV4cCI6MjA5NzI5NzkzM30.Y6KjAafCqTSX_njw4XDJZzv7Ccd6uIDbZW8TCU1JELI',
   token: null,            // access_token after login
   user: null,             // { id, email }
