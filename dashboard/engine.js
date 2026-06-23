@@ -151,10 +151,25 @@ async function loadTextOverrides(){
 }
 function toggleEditMode(){
   EDIT_MODE=!EDIT_MODE;
-  const btn=$('#editToggle'); if(btn){ btn.textContent=EDIT_MODE?'✓ Done editing':'✏️ Edit text'; btn.classList.toggle('on',EDIT_MODE); }
   document.body.classList.toggle('editing',EDIT_MODE);
+  // floating indicator (no visible button — edit mode is operator-only via shortcut)
+  let pill=document.getElementById('editPill');
+  if(EDIT_MODE){
+    if(!pill){
+      pill=document.createElement('div'); pill.id='editPill';
+      pill.style.cssText='position:fixed;bottom:18px;right:18px;z-index:9999;background:var(--wheat);color:var(--aubergine-dark);font-weight:800;font-size:.82rem;padding:9px 14px;border-radius:99px;box-shadow:0 6px 20px rgba(0,0,0,.2);cursor:pointer';
+      pill.textContent='✏️ Editing — press Esc or click here to finish';
+      pill.onclick=toggleEditMode;
+      document.body.appendChild(pill);
+    }
+  } else if(pill){ pill.remove(); }
   render();
 }
+// Secret operator shortcut to toggle editing: Ctrl+Shift+E (Esc exits)
+document.addEventListener('keydown',function(e){
+  if(e.ctrlKey && e.shiftKey && (e.key==='E'||e.key==='e')){ e.preventDefault(); toggleEditMode(); }
+  else if(e.key==='Escape' && EDIT_MODE){ toggleEditMode(); }
+});
 
 function head(eyebrow,title,sub,key){
   key = key || (title||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');

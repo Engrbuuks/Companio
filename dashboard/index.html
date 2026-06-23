@@ -127,8 +127,7 @@ tr.row:hover{background:var(--mist);cursor:pointer}
   .nav{flex-direction:row;flex-wrap:wrap} .side .mode{position:static;margin-top:10px;width:100%}
   .kpis{grid-template-columns:repeat(2,1fr)}
 }
-/* editable text mode */
-#editToggle.on{background:var(--wheat);color:var(--aubergine-dark);border-color:var(--wheat)}
+/* editable text mode (operator-only, toggled with Ctrl+Shift+E) */
 body.editing .ed{outline:1.5px dashed rgba(231,184,106,.8);outline-offset:3px;border-radius:4px;cursor:text;transition:background .15s}
 body.editing .ed:hover{background:rgba(231,184,106,.12)}
 body.editing .ed:focus{outline:2px solid var(--wheat);background:rgba(231,184,106,.16)}
@@ -143,7 +142,6 @@ body.editing .head::after{content:"✏️ Editing — click any highlighted text
     <p class="sub">Operations</p>
     <nav class="nav" id="nav"></nav>
     <div class="mode" id="modeNote">Mode: <b>Demo</b><br><span class="muted" style="color:rgba(244,240,234,.5)">Seed data · read-only preview</span></div>
-    <button id="editToggle" onclick="toggleEditMode()" style="margin-top:10px;width:100%;font:inherit;font-weight:800;font-size:.8rem;padding:8px;border-radius:8px;border:1.5px solid rgba(231,184,106,.5);background:transparent;color:var(--wheat);cursor:pointer">✏️ Edit text</button>
   </aside>
   <main class="main" id="view"></main>
 </div>
@@ -155,8 +153,8 @@ body.editing .head::after{content:"✏️ Editing — click any highlighted text
 /* ====== ENGINE CONFIG ======
    To go live: paste your Supabase project URL + anon public key below.
    Left blank, the dashboard runs on baked-in demo data (no login needed). */
-const SUPABASE_URL = "";
-const SUPABASE_ANON_KEY = "";
+const SUPABASE_URL = "https://bouyfsfcfjeordmaaaof.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvdXlmc2ZjZmplb3JkbWFhYW9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3MjE5MzMsImV4cCI6MjA5NzI5NzkzM30.Y6KjAafCqTSX_njw4XDJZzv7Ccd6uIDbZW8TCU1JELI";
 </script>
 <script src="supabase.js"></script>
 <script src="engine.js"></script>
