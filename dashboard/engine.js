@@ -264,7 +264,7 @@ function viewCompanions(){
       <td>£${c.hourly_pay.toFixed(2)}</td>
     </tr>`;}).join('');
   return head('Supply','Companions','Your roster. Solve supply before demand — fill the gate of 5–8 great people before scaling marketing.')+`
-  <div class="panel"><div class="panel-h"><h3>Roster (${DB.companions.length})</h3><button class="btn sm primary" onclick="alert('In live mode this opens the new-companion form.')">+ Add companion</button></div>
+  <div class="panel"><div class="panel-h"><h3>Roster (${DB.companions.length})</h3><button class="btn sm primary" onclick="openAddApplicant()">+ Add companion</button></div>
   <div class="panel-b"><table><thead><tr><th>Name</th><th>Status</th><th>Vetting</th><th>Offers</th><th>Clients</th><th>Pay/hr</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
@@ -810,7 +810,115 @@ function viewReports(){
   return out;
 }
 
-/* ---------- SETTINGS (the master control panel) ---------- */
+/* ---------- THEME CUSTOMIZATION ----------
+   Overrides CSS variables + fonts + logo at runtime; persists to app_settings
+   as 'theme.<prop>'. Covers colours, fonts and the logo — full visual control. */
+const THEME_PROPS=[
+  {k:'aubergine',label:'Primary (aubergine)',def:'#4A4458'},
+  {k:'aubergine-dark',label:'Primary dark',def:'#322E3D'},
+  {k:'wheat',label:'Accent (wheat)',def:'#E7B86A'},
+  {k:'wheat-deep',label:'Accent deep',def:'#C8943B'},
+  {k:'offwhite',label:'Background',def:'#F4F0EA'},
+  {k:'ink',label:'Text',def:'#241F2B'},
+];
+const FONT_CHOICES={
+  serif:['Fraunces','Georgia','"Playfair Display"','Cormorant Garamond','"Times New Roman"'],
+  sans:['Mulish','system-ui','Inter','"Helvetica Neue"','Arial','Verdana'],
+};
+let THEME={};      // prop -> value overrides
+let LOGO_URL='';   // custom logo data/URL
+function applyTheme(){
+  const root=document.documentElement;
+  THEME_PROPS.forEach(p=>{
+    if(THEME[p.k]) root.style.setProperty('--'+p.k, THEME[p.k]);
+    else root.style.removeProperty('--'+p.k);
+  });
+  if(THEME.serif) root.style.setProperty('--serif', THEME.serif+',Georgia,serif');
+  else root.style.removeProperty('--serif');
+  if(THEME.sans) root.style.setProperty('--sans', THEME.sans+',system-ui,sans-serif');
+  else root.style.removeProperty('--sans');
+  // logo
+  if(LOGO_URL){
+    document.querySelectorAll('.brand .mark, .topbar .mark, #brandMark').forEach(m=>{
+      m.innerHTML=`<img src="${LOGO_URL}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
+    });
+  }
+}
+async function setTheme(prop,val){
+  if(val) THEME[prop]=val; else delete THEME[prop];
+  applyTheme();
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.rpc('set_setting',{p_key:'theme.'+prop, p_value:val||''}); }catch(e){}
+  }
+}
+async function setLogo(url){
+  LOGO_URL=url; applyTheme();
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.rpc('set_setting',{p_key:'theme.logo', p_value:url||''}); }catch(e){}
+  }
+}
+async function loadTheme(){
+  if(typeof api!=='undefined' && api.live){
+    try{
+      const rows=await supa.select('app_settings',`select=key,value&key=like.theme.*`);
+      (rows||[]).forEach(r=>{
+        const prop=r.key.replace(/^theme\./,'');
+        if(prop==='logo') LOGO_URL=r.value; else THEME[prop]=r.value;
+      });
+    }catch(e){}
+  }
+  applyTheme();
+}
+function resetTheme(){
+  if(!confirm('Reset all colours, fonts and logo to the Companio defaults?')) return;
+  THEME={}; LOGO_URL='';
+  if(typeof api!=='undefined' && api.live){
+    THEME_PROPS.forEach(p=>{try{supa.rpc('set_setting',{p_key:'theme.'+p.k,p_value:''});}catch(e){}});
+    try{supa.rpc('set_setting',{p_key:'theme.serif',p_value:''});supa.rpc('set_setting',{p_key:'theme.sans',p_value:''});supa.rpc('set_setting',{p_key:'theme.logo',p_value:''});}catch(e){}
+  }
+  applyTheme(); render();
+}
+function viewTheme(){
+  const sw=THEME_PROPS.map(p=>{
+    const cur=THEME[p.k]||p.def;
+    return `<div class="row" style="display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--line)">
+      <input type="color" value="${cur}" oninput="setTheme('${p.k}',this.value)" style="width:42px;height:34px;border:1px solid var(--line);border-radius:7px;cursor:pointer;padding:2px">
+      <div style="flex:1"><div class="name">${p.label}</div><div class="sub2">${cur}</div></div>
+      ${THEME[p.k]?`<button class="btn sm" onclick="setTheme('${p.k}','');render()">Reset</button>`:''}
+    </div>`;
+  }).join('');
+  const fontSel=(type,label)=>{
+    const cur=THEME[type]||FONT_CHOICES[type][0];
+    return `<div class="row" style="padding:11px 20px;border-bottom:1px solid var(--line)">
+      <label style="font-weight:700;font-size:.85rem">${label}</label>
+      <select onchange="setTheme('${type}',this.value);render()" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin-top:5px">
+        ${FONT_CHOICES[type].map(f=>`<option value="${f}" ${cur===f?'selected':''}>${f.replace(/"/g,'')}</option>`).join('')}
+      </select></div>`;
+  };
+  return `<div class="panel"><div class="panel-h"><h3>Brand colours</h3><button class="btn sm" onclick="resetTheme()">Reset all</button></div>
+    <div class="panel-b">${sw}</div></div>
+  <div class="panel"><div class="panel-h"><h3>Fonts</h3></div><div class="panel-b">
+    ${fontSel('serif','Headings font')}${fontSel('sans','Body font')}</div></div>
+  <div class="panel"><div class="panel-h"><h3>Logo</h3></div><div class="panel-b" style="padding:16px 20px">
+    <p class="sub2" style="margin-top:0">Paste a logo image URL, or upload a file (it’s stored with your dashboard). Replaces the ∞ mark.</p>
+    <input id="logoUrl" placeholder="https://… or upload below" value="${LOGO_URL&&!LOGO_URL.startsWith('data:')?LOGO_URL:''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" onclick="setLogo($('#logoUrl').value.trim());render()">Use this URL</button>
+      <label class="btn" style="cursor:pointer">Upload file<input type="file" accept="image/*" style="display:none" onchange="uploadLogo(this)"></label>
+      ${LOGO_URL?`<button class="btn" onclick="setLogo('');render()">Remove logo</button>`:''}
+    </div>
+    ${LOGO_URL?`<div style="margin-top:14px;display:flex;align-items:center;gap:10px"><span class="sub2">Preview:</span><span style="width:40px;height:40px;border-radius:50%;overflow:hidden;display:inline-block;border:1px solid var(--line)"><img src="${LOGO_URL}" style="width:100%;height:100%;object-fit:cover"></span></div>`:''}
+  </div></div>`;
+}
+function uploadLogo(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  if(f.size>500000){ alert('Please use an image under 500KB.'); return; }
+  const reader=new FileReader();
+  reader.onload=e=>{ setLogo(e.target.result); render(); };  // data URL, travels with the dashboard
+  reader.readAsDataURL(f);
+}
+
+
 function viewSettings(){
   const F=DB.features;
   const feat=(key,title,desc,reqs)=>{
@@ -823,6 +931,9 @@ function viewSettings(){
     </div>`;
   };
   return head('Control','Settings','Activate capabilities when you’re ready. Everything below is built and waiting — flip a switch to turn it on.')+`
+  <div class="panel"><div class="panel-h"><h3>🎨 Appearance</h3><span class="muted" style="font-size:.82rem">colours, fonts & logo — changes apply instantly</span></div>
+    <div class="panel-b" style="padding:0"></div></div>
+  ${viewTheme()}
   <div class="panel"><div class="panel-h"><h3>Features</h3></div><div class="panel-b">
     ${feat('stripe','Card payments (Stripe)','Let families pay invoices online by card, auto-reconciled.','add your Stripe keys + deploy the checkout function')}
     ${feat('reminders','Visit reminders','Automatically email families and companions 24h before each visit.','email (Resend) must be configured')}
@@ -918,8 +1029,29 @@ async function aiExplainMatches(userId){
   if(btn){btn.textContent='✨ AI: explain the fit';btn.disabled=false;}
 }
 async function introduce(userId,compId,name){
-  if(typeof api!=='undefined'){ try{ await api.introduceMatch(DB,userId,compId); }catch(e){} }
-  alert((api&&api.live?'Introduced ':'Demo: would introduce ')+name.split(' ')[0]+' to this family.');
+  const u=DB.service_users.find(x=>x.id===userId);
+  const c=DB.companions.find(x=>x.id===compId);
+  if(!confirm(`Introduce ${name.split(' ')[0]} to ${u?u.full_name:'this family'}?\n\nThis records the match and creates a draft booking you can confirm once the family agrees.`)) return;
+  if(typeof api!=='undefined' && api.live){
+    try{
+      await api.introduceMatch(DB,userId,compId);
+      // create a draft booking tying requester + user + companion
+      await supa.insert('bookings',{
+        requester_id:u.requester_id, service_user_id:userId, companion_id:compId,
+        service:(c&&c.offers&&c.offers!=='both')?c.offers:'companionship',
+        frequency:'weekly', hourly_rate:32, visit_length_hrs:2, status:'draft'
+      });
+      await loadAll(DB);
+      closeDrawer(); render();
+      alert(`${name.split(' ')[0]} introduced — a draft booking is ready in Bookings. Confirm it once the family says yes.`);
+    }catch(e){ alert('Could not introduce: '+e.message); }
+  } else {
+    // demo: create the draft booking locally so the flow is visible
+    DB.bookings.push({id:'b'+Date.now(),requester_id:u.requester_id,service_user_id:userId,companion_id:compId,
+      service:'companionship',frequency:'weekly',hourly_rate:32,visit_length_hrs:2,status:'draft'});
+    closeDrawer(); render();
+    alert(`Demo: ${name.split(' ')[0]} introduced — a draft booking now appears in Bookings.`);
+  }
 }
 function openMatches(userId){openUser(userId);}
 
@@ -972,6 +1104,7 @@ async function boot(){
       $('#view').innerHTML = '<div class="empty">Loading your data…</div>';
       await loadAll(DB);
       await loadTextOverrides();
+      await loadTheme();
     } catch(e){
       $('#view').innerHTML = '<div class="empty">Could not load data: '+e.message+'</div>'; return;
     }
