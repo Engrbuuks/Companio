@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Companio — Companion Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --aubergine:#4A4458; --aubergine-dark:#322E3D; --wheat:#E7B86A; --wheat-deep:#C8943B;
+  --lilac:#9B8AA8; --offwhite:#F4F0EA; --ink:#241F2B; --line:#E2DBD0; --card:#FFFFFF;
+  --mist:#FAF7F1; --muted:#7A7488; --good:#2E7D52; --warn:#C8943B; --bad:#B3403A;
+  --serif:"Fraunces",Georgia,serif; --sans:"Mulish",system-ui,sans-serif; --r:14px; --shadow:0 8px 30px rgba(50,46,61,.10);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--sans);background:var(--offwhite);color:var(--ink);font-size:15px}
+h1,h2,h3{font-family:var(--serif);color:var(--aubergine-dark);margin:0}
+.muted{color:var(--muted)}
+.topbar{background:var(--aubergine-dark);color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+.topbar .brand{display:flex;align-items:center;gap:10px}
+.topbar .mark{width:30px;height:30px;border-radius:50%;background:var(--wheat);display:grid;place-items:center;color:var(--aubergine-dark);font-weight:800}
+.topbar b{font-family:var(--serif);font-size:1.2rem}
+.topbar .who{font-size:.85rem;color:rgba(244,240,234,.7)}
+.topbar a{color:var(--wheat);font-weight:700}
+.wrap{max-width:860px;margin:0 auto;padding:26px 20px 60px}
+.hello{margin-bottom:22px}
+.hello h1{font-size:1.8rem}
+.tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap}
+.tabs button{font:inherit;font-weight:800;font-size:.9rem;padding:9px 16px;border-radius:99px;border:1.5px solid var(--line);background:var(--card);color:var(--aubergine);cursor:pointer}
+.tabs button.on{background:var(--aubergine);color:#fff;border-color:var(--aubergine)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;margin-bottom:18px}
+.panel-h{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.panel-h h3{font-size:1.05rem}
+.visit{padding:16px 20px;border-bottom:1px solid var(--line)}
+.visit:last-child{border-bottom:none}
+.visit .when{font-weight:800;color:var(--aubergine-dark)}
+.visit .who{color:var(--muted);font-size:.9rem}
+.chip{display:inline-block;font-size:.72rem;font-weight:800;padding:3px 10px;border-radius:99px;background:var(--mist);color:var(--aubergine);border:1px solid var(--line)}
+.chip.good{background:rgba(46,125,82,.1);color:var(--good);border-color:transparent}
+.chip.wheat{background:rgba(231,184,106,.18);color:var(--wheat-deep);border-color:transparent}
+.btn{font:inherit;font-weight:800;font-size:.85rem;border-radius:9px;padding:8px 15px;border:1.5px solid var(--aubergine);background:transparent;color:var(--aubergine);cursor:pointer}
+.btn:hover{background:var(--aubergine);color:#fff}
+.btn.primary{background:var(--wheat);border-color:var(--wheat);color:var(--aubergine-dark)}
+.btn.sm{padding:5px 11px;font-size:.78rem}
+textarea,input,select{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin-top:5px}
+label{font-weight:700;font-size:.85rem;display:block;margin-top:12px}
+.empty{padding:36px 20px;text-align:center;color:var(--muted)}
+.avail-row{display:flex;gap:10px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line)}
+.note-card{background:var(--mist);border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin:0 20px 12px}
+.note-card .meta{font-size:.76rem;color:var(--muted);margin-bottom:4px}
+.login-bg{min-height:100vh;display:grid;place-items:center;background:var(--aubergine-dark)}
+.login-card{background:var(--offwhite);border-radius:16px;padding:34px;width:min(380px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.err{background:rgba(179,64,58,.1);color:var(--bad);border:1px solid rgba(179,64,58,.3);border-radius:9px;padding:10px 13px;font-size:.85rem;font-weight:700;margin:12px 0}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const SUPABASE_URL = "";
+const SUPABASE_ANON_KEY = "";
+</script>
+<script src="supabase.js"></script>
+<script src="portal-companion.js"></script>
+</body>
+</html>

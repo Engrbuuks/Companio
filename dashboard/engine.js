@@ -33,6 +33,17 @@ const DB = {
     {id:'n1',visit_id:'v1',companion_id:'c1',summary:'Joan was in great spirits — we worked through the crossword over two cups of tea and she told me all about her time teaching in Lagos. She walked me to the door, which she was pleased about.',shared_with_family:true,created_at:'2026-06-24'},
   ],
   matches: [],
+  visit_pay: [
+    {id:'vp1',visit_id:'v1',companion_id:'c1',hours:2,rate:14,amount:28,status:'accrued'},
+  ],
+  payouts: [],
+  features: {stripe:'off', reminders:'off', documents:'on', reporting:'on'},
+  documents: [
+    {id:'d1',kind:'dbs',companion_id:'c1',label:'DBS certificate',expires_on:'2029-03-01'},
+  ],
+  invoices: [
+    {id:'i1',requester_id:'r1',number:'CMP-2026-0001',status:'sent',total:64,amount_paid:0,period_start:'2026-06-01',period_end:'2026-06-30',due_date:'2026-07-14'},
+  ],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -80,10 +91,15 @@ const statusChip=s=>({active:'good',vetting:'warn',applicant:'warn',paused:'',of
 /* ---------- NAV ---------- */
 const TABS=[
   {id:'overview',ico:'◎',label:'Overview'},
+  {id:'pipeline',ico:'⇢',label:'Recruiting'},
   {id:'companions',ico:'❋',label:'Companions'},
   {id:'requesters',ico:'❑',label:'Requesters & Users'},
+  {id:'schedule',ico:'▦',label:'Schedule'},
   {id:'bookings',ico:'✦',label:'Bookings'},
   {id:'visits',ico:'✓',label:'Visits & Notes'},
+  {id:'finance',ico:'£',label:'Finance'},
+  {id:'reports',ico:'▲',label:'Reports'},
+  {id:'settings',ico:'⚙',label:'Settings'},
 ];
 let current='overview';
 function renderNav(){
@@ -99,14 +115,33 @@ function renderNav(){
 function head(eyebrow,title,sub){
   return `<div class="head"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>${sub?`<p>${sub}</p>`:''}</div></div>`;
 }
+/* chart lifecycle — destroy any live charts before re-rendering, redraw after */
+let CHARTS=[];
+function killCharts(){ CHARTS.forEach(c=>{try{c.destroy();}catch(e){}}); CHARTS=[]; }
+const CHART_PENDING=[];
+function queueChart(fn){ CHART_PENDING.push(fn); }
+function drawCharts(){
+  if(typeof Chart==='undefined'){ CHART_PENDING.length=0; return; }
+  Chart.defaults.font.family='Mulish, system-ui, sans-serif';
+  Chart.defaults.color='#7A7488';
+  CHART_PENDING.forEach(fn=>{ try{ const c=fn(); if(c) CHARTS.push(c);}catch(e){console.warn('chart',e);} });
+  CHART_PENDING.length=0;
+}
 function render(){
+  killCharts();
   const v=$('#view');
   if(current==='overview') v.innerHTML=viewOverview();
+  else if(current==='pipeline') v.innerHTML=viewPipeline();
+  else if(current==='schedule') v.innerHTML=viewSchedule();
   else if(current==='companions') v.innerHTML=viewCompanions();
   else if(current==='requesters') v.innerHTML=viewRequesters();
   else if(current==='bookings') v.innerHTML=viewBookings();
   else if(current==='visits') v.innerHTML=viewVisits();
+  else if(current==='finance') v.innerHTML=viewFinance();
+  else if(current==='reports') v.innerHTML=viewReports();
+  else if(current==='settings') v.innerHTML=viewSettings();
   bindRows();
+  drawCharts();
 }
 
 function viewOverview(){
@@ -123,7 +158,8 @@ function viewOverview(){
       <td style="width:40%"><div style="background:var(--line);border-radius:99px;height:8px"><div style="width:${pct}%;height:8px;border-radius:99px;background:var(--wheat)"></div></div></td>
       <td><span class="chip ${c.max_clients-used>0?'good':'bad'}">${c.max_clients-used} free</span></td></tr>`;
   }).join('');
-  return head('Operations','Good morning, BRAVO','One catchment · Guildford & Woking. The engine tracks supply, families, bookings and visits in one place.')+`
+  const out = head('Operations','Good morning, BRAVO','One catchment · Guildford & Woking. The engine tracks supply, families, bookings and visits in one place.')+
+  actionPanel()+`
   <div class="kpis">
     <div class="kpi"><div class="n">${active}</div><div class="l">Active companions</div></div>
     <div class="kpi accent"><div class="n">${vetting}</div><div class="l">In vetting</div></div>
@@ -131,12 +167,25 @@ function viewOverview(){
     <div class="kpi"><div class="n">${activeBk}</div><div class="l">Active bookings</div></div>
   </div>
   <div class="panel"><div class="panel-h"><h3>Companion capacity</h3><span class="muted" style="font-size:.82rem">${upcoming} visits scheduled</span></div>
-    <div class="panel-b"><table><thead><tr><th>Companion</th><th>Load</th><th>Utilisation</th><th>Headroom</th></tr></thead><tbody>${loadRows}</tbody></table></div>
+    <div class="panel-b" style="padding:16px 20px"><div style="display:flex;gap:26px;flex-wrap:wrap;align-items:center">
+      <div style="width:190px;height:190px;flex:0 0 auto"><canvas id="capChart"></canvas></div>
+      <div style="flex:1;min-width:300px"><table style="width:100%"><thead><tr><th>Companion</th><th>Load</th><th>Utilisation</th><th>Headroom</th></tr></thead><tbody>${loadRows}</tbody></table></div>
+    </div></div>
   </div>
   <div class="panel"><div class="panel-h"><h3>The one number that matters</h3></div>
     <div class="panel-b" style="padding:20px"><p class="muted" style="margin:0 0 6px">Breakthrough = one companion's week full of repeat clients at £30+/hr with margin left. Track it here as you grow.</p>
     <div class="score"><div class="ring" style="--p:25"><b>25%</b></div><div><b>Pilot underway</b><div class="sub2">1 active booking at £32/hr · target: fill Linda's week first</div></div></div></div>
   </div>`;
+  // capacity doughnut
+  const acomps=DB.companions.filter(c=>c.status==='active');
+  const usedSlots=acomps.reduce((s,c)=>s+DB.bookings.filter(b=>b.companion_id===c.id&&b.status==='active').length,0);
+  const capTotal=acomps.reduce((s,c)=>s+(c.max_clients||8),0);
+  queueChart(()=>{const el=document.getElementById('capChart');if(!el)return;
+    return new Chart(el,{type:'doughnut',data:{labels:['Filled','Free'],
+      datasets:[{data:[usedSlots,Math.max(0,capTotal-usedSlots)],backgroundColor:['#E7B86A','#E2DBD0'],borderWidth:0}]},
+      options:{cutout:'66%',plugins:{legend:{position:'bottom',labels:{padding:12,boxWidth:12,font:{size:12}}},
+        title:{display:true,text:`${usedSlots} of ${capTotal} slots filled`,color:'#322E3D',font:{size:13,weight:'700'}}},animation:{duration:600}}});});
+  return out;
 }
 
 function viewCompanions(){
@@ -205,9 +254,14 @@ function viewVisits(){
     const u=DB.service_users.find(x=>x.id===b.service_user_id);
     const c=DB.companions.find(x=>x.id===v.companion_id);
     const note=DB.visit_notes.find(n=>n.visit_id===v.id);
+    const action = v.status==='scheduled'
+      ? `<button class="btn sm primary" onclick="completeVisit('${v.id}')">Mark visit happened</button>`
+      : v.status==='completed'
+        ? '<span class="chip good">completed</span>'
+        : `<span class="chip">${cap(v.status)}</span>`;
     return `<tr><td><div class="name">${u.full_name}</div><div class="sub2">${c?c.full_name:''}</div></td>
       <td>${fmt(v.scheduled_at)}<div class="sub2">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${v.length_hrs}h</div></td>
-      <td><span class="chip ${statusChip(v.status)}">${cap(v.status)}</span></td>
+      <td>${action}</td>
       <td>${note?'<span class="chip good">note shared</span>':(v.status==='completed'?'<span class="chip warn">note due</span>':'—')}</td></tr>`;
   }).join('');
   const notes=DB.visit_notes.map(n=>{
@@ -218,6 +272,313 @@ function viewVisits(){
   return head('Delivery','Visits & Notes','Every visit ends with a warm note to the family — the promise that keeps requesters reassured.')+`
   <div class="panel"><div class="panel-h"><h3>Visits</h3></div><div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th></tr></thead><tbody>${rows}</tbody></table></div></div>
   <div class="panel"><div class="panel-h"><h3>Recent notes to family</h3></div><div class="panel-b" style="padding:16px 20px">${notes||'<div class="empty">No notes yet.</div>'}</div></div>`;
+}
+
+/* ---------- VISIT COMPLETION (the spine) ---------- */
+async function completeVisit(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.rpc('complete_visit',{p_visit:visitId});
+      // refresh from server so accruals/notes reflect
+      await loadAll(DB);
+    }catch(e){ alert('Could not complete visit: '+e.message); return; }
+  } else {
+    // demo: mirror complete_visit() — mark done + accrue companion pay
+    v.status='completed';
+    const c=DB.companions.find(x=>x.id===v.companion_id);
+    const rate=c?(c.hourly_pay||14):14;
+    if(!DB.visit_pay.some(p=>p.visit_id===visitId)){
+      DB.visit_pay.push({id:'vp'+Date.now(),visit_id:visitId,companion_id:v.companion_id,hours:v.length_hrs,rate,amount:+(v.length_hrs*rate).toFixed(2),status:'accrued'});
+    }
+  }
+  render();
+}
+
+/* ---------- FINANCE ---------- */
+function financeNumbers(){
+  const invoiced=DB.invoices.filter(i=>i.status!=='void').reduce((s,i)=>s+ +i.total,0);
+  const collected=DB.invoices.filter(i=>i.status!=='void').reduce((s,i)=>s+ +i.amount_paid,0);
+  const outstanding=invoiced-collected;
+  const accrued=DB.visit_pay.reduce((s,p)=>s+ +p.amount,0);
+  const paidOut=DB.visit_pay.filter(p=>p.status==='paid').reduce((s,p)=>s+ +p.amount,0);
+  const pendingOut=DB.visit_pay.filter(p=>p.status==='accrued').reduce((s,p)=>s+ +p.amount,0);
+  const margin=invoiced-accrued;
+  const marginPct=invoiced>0?Math.round(margin/invoiced*1000)/10:0;
+  return {invoiced,collected,outstanding,accrued,paidOut,pendingOut,margin,marginPct};
+}
+function money(n){return '£'+Number(n||0).toFixed(2);}
+function viewFinance(){
+  const f=financeNumbers();
+  // per-companion earnings
+  const earn=DB.companions.map(c=>{
+    const rows=DB.visit_pay.filter(p=>p.companion_id===c.id);
+    const pending=rows.filter(p=>p.status==='accrued').reduce((s,p)=>s+ +p.amount,0);
+    const paid=rows.filter(p=>p.status==='paid').reduce((s,p)=>s+ +p.amount,0);
+    return {name:c.full_name,pending,paid,lifetime:pending+paid};
+  }).filter(e=>e.lifetime>0);
+  const earnRows=earn.length?earn.map(e=>`<tr><td class="name">${e.name}</td>
+    <td>${money(e.pending)}</td><td>${money(e.paid)}</td><td><b>${money(e.lifetime)}</b></td>
+    <td>${e.pending>0?`<button class="btn sm primary" onclick="runPayout('${e.name.replace(/'/g,'')}')">Pay ${money(e.pending)}</button>`:'<span class="chip good">settled</span>'}</td></tr>`).join('')
+    :'<tr><td colspan="5"><div class="empty">No earnings yet — complete some visits.</div></td></tr>';
+
+  const out = head('Money','Finance','Revenue in, companion cost out, and the margin between — the one number that matters, from live data.')+`
+  <div class="kpis">
+    <div class="kpi"><div class="n">${money(f.invoiced)}</div><div class="l">Invoiced (revenue)</div></div>
+    <div class="kpi"><div class="n">${money(f.collected)}</div><div class="l">Collected</div></div>
+    <div class="kpi"><div class="n">${money(f.accrued)}</div><div class="l">Companion cost</div></div>
+    <div class="kpi accent"><div class="n">${money(f.margin)}</div><div class="l">Gross margin · ${f.marginPct}%</div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h3>Money flow</h3><span class="muted" style="font-size:.82rem">hover for detail</span></div>
+    <div class="panel-b" style="padding:18px 20px"><div style="height:230px"><canvas id="moneyChart"></canvas></div>
+      <p class="muted" style="margin:14px 0 0;font-size:.85rem">Outstanding from families: <b>${money(f.outstanding)}</b> · Pending to companions: <b>${money(f.pendingOut)}</b></p>
+    </div></div>
+  <div class="panel"><div class="panel-h"><h3>Companion earnings & payouts</h3></div>
+    <div class="panel-b"><table><thead><tr><th>Companion</th><th>Pending</th><th>Paid</th><th>Lifetime</th><th>Payout</th></tr></thead><tbody>${earnRows}</tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h3>Invoices to families</h3></div>
+    <div class="panel-b"><table><thead><tr><th>Invoice</th><th>Total</th><th>Paid</th><th>Status</th></tr></thead><tbody>
+    ${DB.invoices.map(i=>`<tr><td class="name">${i.number||'—'}</td><td>${money(i.total)}</td><td>${money(i.amount_paid)}</td><td><span class="chip ${i.status==='paid'?'good':i.status==='void'?'':'warn'}">${cap(i.status)}</span></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty">No invoices yet.</div></td></tr>'}
+    </tbody></table></div></div>`;
+  queueChart(()=>{const el=document.getElementById('moneyChart');if(!el)return;
+    return new Chart(el,{type:'bar',data:{
+      labels:['Invoiced','Collected','Companion cost','Gross margin'],
+      datasets:[{data:[f.invoiced,f.collected,f.accrued,f.margin],
+        backgroundColor:['#4A4458','#9B8AA8','#C8943B','#E7B86A'],borderRadius:6,maxBarThickness:80}]},
+      options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.raw)}}},
+        scales:{y:{beginAtZero:true,ticks:{callback:v=>'£'+v}},x:{grid:{display:false}}},animation:{duration:700}}});});
+  return out;
+}
+async function runPayout(name){
+  const c=DB.companions.find(x=>x.full_name===name); if(!c) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ const po=await supa.rpc('run_payout',{p_companion:c.id});
+      // mark paid immediately for the demo flow; in production you'd confirm bank transfer first
+      await loadAll(DB);
+    }catch(e){ alert('Payout failed: '+e.message); return; }
+  } else {
+    DB.visit_pay.filter(p=>p.companion_id===c.id&&p.status==='accrued').forEach(p=>p.status='paid');
+  }
+  render();
+}
+
+/* ---------- ACTION ITEMS (what needs attention) ---------- */
+function computeActions(){
+  const items=[];
+  // notes due
+  DB.visits.filter(v=>v.status==='completed' && !DB.visit_notes.some(n=>n.visit_id===v.id)).forEach(v=>{
+    const b=DB.bookings.find(x=>x.id===v.booking_id); const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);
+    items.push({kind:'note_due',sev:'high',label:`${u?u.full_name:'A visit'} — note to family due`,ref:v.id});
+  });
+  // overdue invoices
+  DB.invoices.filter(i=>['sent','overdue'].includes(i.status) && i.due_date && new Date(i.due_date)<new Date() && (i.total-i.amount_paid)>0).forEach(i=>{
+    items.push({kind:'invoice_overdue',sev:'high',label:`${i.number} overdue · ${money(i.total-i.amount_paid)} due`,ref:i.id});
+  });
+  // vetting in progress
+  DB.companions.filter(c=>['applicant','vetting'].includes(c.status)).forEach(c=>{
+    items.push({kind:'vetting',sev:'medium',label:`${c.full_name} in vetting (DBS: ${c.dbs})`,ref:c.id});
+  });
+  // unassigned active bookings
+  DB.bookings.filter(b=>b.status==='active'&&!b.companion_id).forEach(b=>{
+    const u=DB.service_users.find(x=>x.id===b.service_user_id);
+    items.push({kind:'unassigned',sev:'high',label:`${u?u.full_name:'A booking'} has no companion assigned`,ref:b.id});
+  });
+  const order={high:1,medium:2,low:3};
+  return items.sort((a,b)=>order[a.sev]-order[b.sev]);
+}
+function actionPanel(){
+  const items=computeActions();
+  if(!items.length) return `<div class="panel" style="border-color:rgba(46,125,82,.4)"><div class="panel-b" style="padding:16px 20px;color:var(--good);font-weight:700">✓ All clear — nothing needs your attention right now.</div></div>`;
+  const dot=s=>s==='high'?'var(--bad)':s==='medium'?'var(--wheat-deep)':'var(--muted)';
+  return `<div class="panel"><div class="panel-h"><h3>Needs attention</h3><span class="chip ${items.some(i=>i.sev==='high')?'bad':'warn'}">${items.length}</span></div>
+  <div class="panel-b">${items.map(i=>`<div class="row" style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--line)">
+    <span class="dot" style="background:${dot(i.sev)};width:9px;height:9px"></span>
+    <span style="flex:1">${i.label}</span>
+    ${i.kind==='note_due'?`<button class="btn sm" onclick="current='visits';renderNav();render()">Write note</button>`:''}
+    ${i.kind==='vetting'?`<button class="btn sm" onclick="current='pipeline';renderNav();render()">Open pipeline</button>`:''}
+  </div>`).join('')}</div></div>`;
+}
+
+/* ---------- RECRUITING PIPELINE ---------- */
+function viewPipeline(){
+  const stages=[
+    {key:'applicant',label:'Applied',hint:'New applications'},
+    {key:'vetting',label:'Vetting',hint:'DBS + references'},
+    {key:'active',label:'Active',hint:'Ready to work'},
+    {key:'paused',label:'Paused',hint:'On hold'},
+  ];
+  const cols=stages.map(st=>{
+    const people=DB.companions.filter(c=>c.status===st.key);
+    return `<div style="flex:1;min-width:200px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div><div style="font-weight:800;color:var(--aubergine-dark)">${st.label}</div><div class="sub2">${st.hint}</div></div>
+        <span class="chip wheat">${people.length}</span></div>
+      ${people.map(c=>`<div class="ip-card" style="padding:14px;margin-bottom:10px;cursor:pointer" onclick="openCompanion('${c.id}')">
+        <div class="name">${c.full_name}</div><div class="sub2">${c.city||''}</div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          <span class="chip ${dbsChip(c.dbs)}">DBS ${c.dbs}</span>
+          ${c.references_ok?'<span class="chip good">refs ✓</span>':'<span class="chip warn">refs pending</span>'}
+        </div>
+        ${st.key!=='active'?`<div style="margin-top:10px;display:flex;gap:6px">${nextStageBtn(c,st.key)}</div>`:''}
+      </div>`).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None</div>`}
+    </div>`;
+  }).join('');
+  return head('Supply','Recruiting pipeline','Your funnel from application to active companion. This is the gate the whole business depends on — keep it moving.')+`
+  <div class="panel"><div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>`;
+}
+function nextStageBtn(c,stage){
+  const next={applicant:'vetting',vetting:'active',paused:'active'}[stage];
+  if(!next) return '';
+  const label={vetting:'Move to vetting',active:'Mark active'}[next];
+  return `<button class="btn sm primary" onclick="event.stopPropagation();moveStage('${c.id}','${next}')">${label}</button>`;
+}
+async function moveStage(id,status){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,{status}); }catch(e){ alert(e.message); return; } }
+  c.status=status; render();
+}
+
+/* ---------- SCHEDULE (week calendar) ---------- */
+let schedWeek=0; // offset in weeks from current
+function viewSchedule(){
+  const now=new Date(); now.setHours(0,0,0,0);
+  const monday=new Date(now); monday.setDate(now.getDate()-((now.getDay()+6)%7)+schedWeek*7);
+  const days=[...Array(7)].map((_,i)=>{const d=new Date(monday);d.setDate(monday.getDate()+i);return d;});
+  const dayName=d=>d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  const sameDay=(a,b)=>a.toDateString()===new Date(b).toDateString();
+  const cols=days.map(d=>{
+    const vs=DB.visits.filter(v=>sameDay(d,v.scheduled_at)).sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
+    const isToday=sameDay(d,new Date());
+    return `<div style="flex:1;min-width:150px">
+      <div style="font-weight:800;color:${isToday?'var(--wheat-deep)':'var(--aubergine-dark)'};padding:8px;border-bottom:2px solid ${isToday?'var(--wheat)':'var(--line)'};margin-bottom:8px">${dayName(d)}</div>
+      ${vs.map(v=>{const b=DB.bookings.find(x=>x.id===v.booking_id);const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);const c=DB.companions.find(x=>x.id===v.companion_id);
+        const col=v.status==='completed'?'var(--good)':v.status==='cancelled'||v.status==='no_access'?'var(--muted)':'var(--wheat-deep)';
+        return `<div class="ip-card" style="padding:10px 12px;margin-bottom:7px;border-left:3px solid ${col};cursor:pointer" onclick="openVisitOps('${v.id}')">
+          <div style="font-weight:800;font-size:.86rem">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div class="sub2">${u?u.full_name:''}</div><div class="sub2" style="color:var(--aubergine)">${c?c.full_name:'unassigned'}</div>
+          ${v.status!=='scheduled'?`<span class="chip" style="margin-top:4px;font-size:.66rem">${cap(v.status)}</span>`:''}
+        </div>`;}).join('')||'<div class="sub2" style="padding:8px;color:var(--line)">—</div>'}
+    </div>`;
+  }).join('');
+  return head('Operations','Schedule','Who’s where, when. The core operational view for a visit-based business.')+`
+  <div class="panel"><div class="panel-h">
+    <div style="display:flex;gap:8px;align-items:center"><button class="btn sm" onclick="schedWeek--;render()">← Prev</button>
+    <button class="btn sm" onclick="schedWeek=0;render()">This week</button>
+    <button class="btn sm" onclick="schedWeek++;render()">Next →</button></div>
+    <span class="muted" style="font-size:.85rem">Click a visit to manage it</span></div>
+    <div class="panel-b" style="padding:14px;overflow-x:auto"><div style="display:flex;gap:10px">${cols}</div></div></div>`;
+}
+
+/* ---------- VISIT OPS (complete / cancel / reschedule / reassign) ---------- */
+function openVisitOps(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  const b=DB.bookings.find(x=>x.id===v.booking_id); const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);
+  const c=DB.companions.find(x=>x.id===v.companion_id);
+  const activeComps=DB.companions.filter(x=>x.status==='active');
+  openDrawer(`<div class="drawer-h"><div><h2>${u?u.full_name:'Visit'}</h2>
+    <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${fmt(v.scheduled_at)} · ${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${c?c.full_name:'unassigned'}</div></div>
+    <button class="x" onclick="closeDrawer()">×</button></div>
+  <div class="drawer-b">
+    <div class="field-row"><span class="k">Status</span><span class="v"><span class="chip ${statusChip(v.status)}">${cap(v.status)}</span></span></div>
+    ${v.status==='scheduled'?`
+    <div class="section-t">Manage this visit</div>
+    <button class="btn primary" style="width:100%;margin-bottom:8px" onclick="completeVisit('${v.id}');closeDrawer()">✓ Mark visit happened</button>
+    <label style="font-weight:700;font-size:.85rem">Reschedule to</label>
+    <input id="reAt" type="datetime-local" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin:5px 0 8px">
+    <button class="btn" style="width:100%;margin-bottom:14px" onclick="doReschedule('${v.id}')">Reschedule</button>
+    <label style="font-weight:700;font-size:.85rem">Reassign to</label>
+    <select id="reTo" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin:5px 0 8px">
+      ${activeComps.map(x=>`<option value="${x.id}" ${x.id===v.companion_id?'selected':''}>${x.full_name}</option>`).join('')}</select>
+    <button class="btn" style="width:100%;margin-bottom:14px" onclick="doReassign('${v.id}')">Reassign companion</button>
+    <label style="font-weight:700;font-size:.85rem">Cancel reason</label>
+    <input id="caRe" type="text" placeholder="e.g. Family away" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:9px;margin:5px 0 8px">
+    <button class="btn" style="width:100%;border-color:var(--bad);color:var(--bad)" onclick="doCancel('${v.id}')">Cancel visit</button>
+    `:`<p class="muted">This visit is ${cap(v.status).toLowerCase()} — no further action.</p>`}
+  </div>`);
+}
+async function doReschedule(id){
+  const at=$('#reAt').value; if(!at){alert('Pick a new date/time');return;}
+  const v=DB.visits.find(x=>x.id===id);
+  if(typeof api!=='undefined'&&api.live){try{await supa.rpc('reschedule_visit',{p_visit:id,p_new_at:new Date(at).toISOString()});}catch(e){alert(e.message);return;}}
+  v.scheduled_at=at; closeDrawer(); render();
+}
+async function doReassign(id){
+  const to=$('#reTo').value; const v=DB.visits.find(x=>x.id===id);
+  if(typeof api!=='undefined'&&api.live){try{await supa.rpc('reassign_visit',{p_visit:id,p_new_companion:to});}catch(e){alert(e.message);return;}}
+  v.reassigned_from=v.companion_id; v.companion_id=to; closeDrawer(); render();
+}
+async function doCancel(id){
+  const reason=$('#caRe').value; const v=DB.visits.find(x=>x.id===id);
+  if(typeof api!=='undefined'&&api.live){try{await supa.rpc('cancel_visit',{p_visit:id,p_reason:reason});}catch(e){alert(e.message);return;}}
+  v.status='cancelled'; v.cancel_reason=reason;
+  DB.visit_pay.filter(p=>p.visit_id===id&&p.status==='accrued').forEach(p=>p.status='void');
+  closeDrawer(); render();
+}
+
+/* ---------- REPORTS ---------- */
+function viewReports(){
+  const months=[]; const now=new Date();
+  for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);months.push(d);}
+  const monthLabel=d=>d.toLocaleDateString('en-GB',{month:'short',year:'2-digit'});
+  const revByMonth=m=>DB.invoices.filter(i=>i.status!=='void'&&i.period_end&&new Date(i.period_end).getMonth()===m.getMonth()&&new Date(i.period_end).getFullYear()===m.getFullYear()).reduce((s,i)=>s+ +i.total,0);
+  const costByMonth=m=>DB.visit_pay.reduce((s,p)=>{const v=DB.visits.find(x=>x.id===p.visit_id);if(v&&new Date(v.scheduled_at).getMonth()===m.getMonth()&&new Date(v.scheduled_at).getFullYear()===m.getFullYear())return s+ +p.amount;return s;},0);
+  const data=months.map(m=>({label:monthLabel(m),rev:revByMonth(m),cost:costByMonth(m)}));
+  const util=DB.companions.filter(c=>c.status==='active').map(c=>({name:c.full_name,
+    hrs:DB.visits.filter(v=>v.companion_id===c.id&&v.status==='completed').reduce((s,v)=>s+ +v.length_hrs,0)}));
+
+  const out = head('Insight','Reports','Trends over time. These fill out as you complete visits and raise invoices — sparse now, meaningful in a few months.')+`
+  <div class="panel"><div class="panel-h"><h3>Revenue, cost & margin by month</h3><span class="muted" style="font-size:.8rem">hover for figures</span></div>
+    <div class="panel-b" style="padding:18px 20px"><div style="height:260px"><canvas id="trendChart"></canvas></div></div></div>
+  <div class="panel"><div class="panel-h"><h3>Companion utilisation — completed hours (30 days)</h3></div>
+    <div class="panel-b" style="padding:18px 20px"><div style="height:${Math.max(160,util.length*46)}px"><canvas id="utilChart"></canvas></div></div></div>
+  <p class="muted" style="font-size:.84rem">Retention and cohort reports appear here once you have clients across multiple months.</p>`;
+
+  queueChart(()=>{const el=document.getElementById('trendChart');if(!el)return;
+    return new Chart(el,{type:'bar',data:{labels:data.map(d=>d.label),datasets:[
+      {label:'Revenue',data:data.map(d=>d.rev),backgroundColor:'#E7B86A',borderRadius:5,order:2},
+      {label:'Companion cost',data:data.map(d=>d.cost),backgroundColor:'#4A4458',borderRadius:5,order:2},
+      {label:'Margin',type:'line',data:data.map(d=>d.rev-d.cost),borderColor:'#C8943B',backgroundColor:'#C8943B',
+        tension:.3,borderWidth:2,pointRadius:3,order:1,fill:false}]},
+      options:{plugins:{legend:{position:'bottom',labels:{padding:14,boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.raw)}}},
+        scales:{y:{beginAtZero:true,ticks:{callback:v=>'£'+v}},x:{grid:{display:false}}},animation:{duration:700}}});});
+
+  queueChart(()=>{const el=document.getElementById('utilChart');if(!el)return;
+    return new Chart(el,{type:'bar',data:{labels:util.map(u=>u.name),datasets:[{data:util.map(u=>u.hrs),
+      backgroundColor:'#E7B86A',borderRadius:5,maxBarThickness:26}]},
+      options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+'h completed'}}},
+        scales:{x:{beginAtZero:true,ticks:{callback:v=>v+'h'}},y:{grid:{display:false}}},animation:{duration:600}}});});
+  return out;
+}
+
+/* ---------- SETTINGS (the master control panel) ---------- */
+function viewSettings(){
+  const F=DB.features;
+  const feat=(key,title,desc,reqs)=>{
+    const on=F[key]==='on';
+    return `<div class="row" style="padding:16px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+      <div style="flex:1"><div class="name">${title} ${on?'<span class="chip good">on</span>':'<span class="chip">off</span>'}</div>
+        <div class="sub2" style="margin-top:3px">${desc}</div>
+        ${reqs?`<div class="sub2" style="margin-top:6px;color:var(--wheat-deep)">⚑ Before switching on: ${reqs}</div>`:''}</div>
+      <button class="btn sm ${on?'':'primary'}" onclick="toggleFeature('${key}')">${on?'Turn off':'Turn on'}</button>
+    </div>`;
+  };
+  return head('Control','Settings','Activate capabilities when you’re ready. Everything below is built and waiting — flip a switch to turn it on.')+`
+  <div class="panel"><div class="panel-h"><h3>Features</h3></div><div class="panel-b">
+    ${feat('stripe','Card payments (Stripe)','Let families pay invoices online by card, auto-reconciled.','add your Stripe keys + deploy the checkout function')}
+    ${feat('reminders','Visit reminders','Automatically email families and companions 24h before each visit.','email (Resend) must be configured')}
+    ${feat('documents','Document storage','Attach DBS, ID, references and agreements to companion and client records.','create a “companio-docs” storage bucket in Supabase')}
+    ${feat('reporting','Trend reporting','Revenue, cost, utilisation and retention over time.','nothing — fills automatically as data grows')}
+  </div></div>
+  <div class="panel"><div class="panel-h"><h3>Documents on file</h3></div><div class="panel-b">
+    ${DB.documents.length?DB.documents.map(d=>{const c=DB.companions.find(x=>x.id===d.companion_id);return `<div class="row" style="padding:12px 20px;display:flex;justify-content:space-between"><span><b>${d.label}</b> <span class="sub2">· ${c?c.full_name:''}</span></span><span class="chip ${d.expires_on&&new Date(d.expires_on)<new Date()?'bad':''}">${d.kind}${d.expires_on?' · exp '+fmt(d.expires_on):''}</span></div>`;}).join(''):'<div class="empty">No documents yet.</div>'}
+  </div></div>
+  <p class="muted" style="font-size:.84rem">In live mode these switches write to your <code>app_settings</code> table; each feature reads its flag before doing anything, so nothing fires until you’re ready.</p>`;
+}
+async function toggleFeature(key){
+  const cur=DB.features[key]; const next=cur==='on'?'off':'on';
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('app_settings', null, {value:next}); }catch(e){/* live uses key not id; handled below */}
+    try{ await supa.rpc('set_feature',{p_name:key,p_state:next}); }catch(e){}
+  }
+  DB.features[key]=next; render();
 }
 
 /* ---------- DRAWERS ---------- */
