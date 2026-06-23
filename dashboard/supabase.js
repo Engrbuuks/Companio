@@ -109,6 +109,15 @@ async function loadAll(DB) {
   DB.visits = visits;
   DB.visit_notes = notes;
   DB.matches = matches || [];
+  // pricing: plans + hourly rates (single source of truth for the website too)
+  try {
+    DB.plans = await supa.select('plans', 'select=*&order=sort_order').catch(() => DB.plans || []);
+  } catch (e) {}
+  try {
+    const rateRows = await supa.select('app_settings', 'select=key,value&key=in.(rate_companionship,rate_help,rate_both)').catch(() => []);
+    DB.rates = DB.rates || {};
+    (rateRows || []).forEach(r => { DB.rates[r.key] = r.value; });
+  } catch (e) {}
 }
 
 /* ---------- write helpers (live → Supabase + local cache) ---------- */

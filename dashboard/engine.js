@@ -38,6 +38,12 @@ const DB = {
   ],
   payouts: [],
   features: {stripe:'off', reminders:'off', documents:'on', reporting:'on', ai:'off'},
+  rates: {rate_companionship:'28', rate_help:'30', rate_both:'32'},
+  plans: [
+    {id:'p1',label:'Weekly',tier:'starter',visits_per_week:1,monthly_price:0,active:true,sort_order:1},
+    {id:'p2',label:'Twice-Weekly',tier:'standard',visits_per_week:2,monthly_price:0,active:true,sort_order:2},
+    {id:'p3',label:'Most Days',tier:'companion_plus',visits_per_week:4,monthly_price:0,active:true,sort_order:3},
+  ],
   documents: [
     {id:'d1',kind:'dbs',companion_id:'c1',label:'DBS certificate',expires_on:'2029-03-01'},
   ],
@@ -919,6 +925,43 @@ function uploadLogo(input){
 }
 
 
+/* ---------- PRICING (single source of truth — website reads from here) ---------- */
+function viewPricing(){
+  const r=DB.rates||{rate_companionship:'28',rate_help:'30',rate_both:'32'};
+  const plans=DB.plans||[];
+  const rateRow=(key,label)=>`<div class="row" style="display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--line)">
+    <div style="flex:1"><div class="name">${label}</div></div>
+    <div style="display:flex;align-items:center;gap:4px"><span class="muted">£</span>
+    <input type="number" value="${r[key]||''}" min="0" step="0.5" onchange="saveRate('${key}',this.value)" style="width:80px;padding:8px;border:1px solid var(--line);border-radius:8px;text-align:right">
+    <span class="muted">/hr</span></div></div>`;
+  const planRow=p=>`<div class="row" style="display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--line)">
+    <div style="flex:1"><div class="name">${p.label}</div><div class="sub2">${p.visits_per_week} visit${p.visits_per_week>1?'s':''}/week · ${p.tier}</div></div>
+    <div style="display:flex;align-items:center;gap:4px"><span class="muted">£</span>
+    <input type="number" value="${p.monthly_price||''}" min="0" onchange="savePlan('${p.id}',this.value)" style="width:90px;padding:8px;border:1px solid var(--line);border-radius:8px;text-align:right">
+    <span class="muted">/mo</span></div></div>`;
+  return `<div class="panel"><div class="panel-h"><h3>💷 Pricing</h3><span class="muted" style="font-size:.82rem">your website reads these — change once, updates everywhere</span></div>
+    <div class="panel-b" style="padding:0">
+      <div style="padding:12px 20px 4px"><div class="sub2" style="font-weight:800;color:var(--aubergine-dark)">Hourly rates</div></div>
+      ${rateRow('rate_companionship','Companionship')}
+      ${rateRow('rate_help','Practical help')}
+      ${rateRow('rate_both','Companionship + Help')}
+      <div style="padding:14px 20px 4px"><div class="sub2" style="font-weight:800;color:var(--aubergine-dark)">Monthly packages</div></div>
+      ${plans.map(planRow).join('')||'<div class="empty" style="padding:14px 20px">No packages yet.</div>'}
+      <div style="padding:12px 20px"><p class="sub2" style="margin:0">${plans.some(p=>!p.monthly_price)?'⚠ Set your monthly package prices — they’re £0 until you do.':'Prices flow to your website automatically.'}</p></div>
+    </div></div>`;
+}
+async function saveRate(key,val){
+  if(!DB.rates) DB.rates={};
+  DB.rates[key]=val;
+  if(typeof api!=='undefined' && api.live){ try{ await supa.rpc('set_setting',{p_key:key,p_value:String(val)}); }catch(e){ alert('Could not save: '+e.message); } }
+}
+async function savePlan(id,val){
+  const p=(DB.plans||[]).find(x=>x.id===id); if(!p) return;
+  p.monthly_price=Number(val)||0;
+  if(typeof api!=='undefined' && api.live){ try{ await supa.update('plans',id,{monthly_price:p.monthly_price}); }catch(e){ alert('Could not save: '+e.message); } }
+  render();
+}
+
 function viewSettings(){
   const F=DB.features;
   const feat=(key,title,desc,reqs)=>{
@@ -934,6 +977,7 @@ function viewSettings(){
   <div class="panel"><div class="panel-h"><h3>🎨 Appearance</h3><span class="muted" style="font-size:.82rem">colours, fonts & logo — changes apply instantly</span></div>
     <div class="panel-b" style="padding:0"></div></div>
   ${viewTheme()}
+  ${viewPricing()}
   <div class="panel"><div class="panel-h"><h3>Features</h3></div><div class="panel-b">
     ${feat('stripe','Card payments (Stripe)','Let families pay invoices online by card, auto-reconciled.','add your Stripe keys + deploy the checkout function')}
     ${feat('reminders','Visit reminders','Automatically email families and companions 24h before each visit.','email (Resend) must be configured')}
