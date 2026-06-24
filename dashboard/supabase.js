@@ -82,6 +82,19 @@ const auth = {
     try { localStorage.removeItem('companio_session'); } catch (e) {}
     location.reload();
   },
+  // send a password-reset email. The link lands on set-password.html.
+  async resetPassword(email) {
+    const redirectTo = location.origin + '/set-password.html';
+    const r = await fetch(`${SB.url}/auth/v1/recover`, {
+      method: 'POST', headers: { 'apikey': SB.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, options: { redirectTo } }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error_description || data.msg || 'Could not send reset email');
+    }
+    return true;
+  },
   // confirm the logged-in user is a Companio staff member
   async verifyStaff() {
     const rows = await supa.select('staff', `select=id,full_name,is_admin&auth_user_id=eq.${SB.user.id}`);

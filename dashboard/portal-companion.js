@@ -71,7 +71,15 @@ function showLogin(err){
     <label>Email</label><input id="e" type="email" required autocomplete="username">
     <label>Password</label><input id="p" type="password" required autocomplete="current-password">
     <button class="btn primary" style="width:100%;margin-top:18px;padding:12px" type="submit">Sign in</button>
+    <p style="text-align:center;margin:14px 0 0"><a href="#" id="fp" style="color:var(--aubergine);font-size:.85rem;font-weight:600;text-decoration:none">Forgot your password?</a></p>
   </form></div>`;
+  const fpl=$('#fp');
+  if(fpl) fpl.onclick=async(ev)=>{ev.preventDefault();
+    const email=($('#e').value||'').trim();
+    if(!email){ showLogin('Enter your email above first, then click “Forgot your password?”'); return; }
+    try{ await auth.resetPassword(email); alert('If an account exists for '+email+', a reset link is on its way.'); }
+    catch(e){ showLogin(e.message||'Could not send reset email'); }
+  };
   $('#lf').onsubmit=async(ev)=>{ev.preventDefault();
     const b=$('#lf button');b.textContent='Signing in…';b.disabled=true;
     try{ await auth.login($('#e').value.trim(),$('#p').value);
