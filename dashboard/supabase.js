@@ -166,18 +166,20 @@ async function provisionLogin(role, id) {
   try {
     const rows = await supa.select('app_settings', `select=value&key=eq.ai_functions_url`);
     base = rows && rows[0] ? rows[0].value : '';
-  } catch (e) {}
-  if (!base) return { error: 'Functions URL not configured' };
+  } catch (e) {
+    return { error: 'Could not read settings (check app_settings read policy): ' + (e.message || e) };
+  }
+  if (!base) return { error: 'Functions URL not set. Add ai_functions_url to app_settings and ensure it’s readable.' };
   try {
     const r = await fetch(`${base}/provision-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (SB.token || '') },
       body: JSON.stringify({ role, id }),
     });
-    const j = await r.json();
-    if (!r.ok) return { error: j.error || 'Could not create login' };
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: j.error || ('Function error ' + r.status) };
     return { ok: true, email: j.email };
-  } catch (e) { return { error: String(e) }; }
+  } catch (e) { return { error: 'Could not reach function: ' + (e.message || e) }; }
 }
 
 async function aiAssist(task, data) {
