@@ -8,7 +8,7 @@
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
   companions: [
-    {id:'c1',full_name:'Linda Hartley',source:'website',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
+    {id:'c1',full_name:'Linda Hartley',email:'linda@example.com',source:'website',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
     {id:'c2',full_name:'Grace Owens',source:'referral',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
     {id:'c3',full_name:'Margaret Hill',source:'flyer',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
     {id:'c4',full_name:'Eleanor Voss',source:'website',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
@@ -316,6 +316,7 @@ function viewRequesters(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div><div class="name" style="font-size:1.05rem">${r.full_name} <span class="chip ${statusChip(r.status)}">${cap(r.status)}</span></div>
         <div class="sub2">${r.email} · ${r.phone} · via ${r.source}</div></div>
+        <div style="text-align:right">${requesterLoginBtn(r)}</div>
       </div>
       ${r.matcher_notes?`<div class="sub2" style="margin-top:8px;background:var(--mist);border:1px solid var(--line);border-radius:9px;padding:9px 12px"><b>Matcher:</b> ${r.matcher_notes}</div>`:''}
       <div class="section-t">Service users (${users.length})</div>
@@ -323,6 +324,12 @@ function viewRequesters(){
     </div></div>`;
   }).join('');
   return head('Demand','Requesters & Service Users','The buyer and the person who receives visits are usually different people. The requester arranges and pays; the service user gets the company.')+blocks;
+}
+
+function requesterLoginBtn(r){
+  if(r.login_provisioned) return `<span class="chip good">✓ login invited</span>`;
+  if(!r.email) return `<span class="sub2">No email</span>`;
+  return `<button class="btn sm primary" onclick="createLogin('requester','${r.id}')">✉️ Send login invite</button>`;
 }
 
 function viewBookings(){
@@ -1067,6 +1074,7 @@ function openCompanion(id){
     <div class="section-t">Status</div>
     <div class="field-row"><span class="k">Status</span><span class="v"><span class="chip ${statusChip(c.status)}">${cap(c.status)}</span></span></div>
     <div class="field-row"><span class="k">Offers</span><span class="v"><span class="dot ${c.offers}"></span> ${cap(c.offers)}</span></div>
+    ${loginRow(c,'companion')}
     ${vettingChecklist(c)}
     <div class="section-t">Capacity & pay</div>
     <div class="field-row"><span class="k">Clients</span><span class="v">${used} / ${c.max_clients}</span></div>
@@ -1075,6 +1083,39 @@ function openCompanion(id){
     <div class="field-row"><span class="k">Temperament</span><span class="v">${cap(c.temperament)||'—'}</span></div>
     <div class="tags" style="margin-top:10px">${(c.interests||[]).map(i=>`<span class="tag">${i}</span>`).join('')||'<span class="sub2">No interest tags yet — add from their bio above</span>'}</div>
   </div>`);
+}
+
+/* ---------- LOGIN PROVISIONING (Model A: invite on approval) ---------- */
+function loginRow(person, role){
+  const approved = role==='companion' ? person.status==='active' : true; // requesters approved when confirmed
+  if(person.login_provisioned){
+    return `<div class="field-row"><span class="k">Login</span><span class="v"><span class="chip good">✓ invited${person.login_invited_at?' '+fmtDate(person.login_invited_at):''}</span></span></div>`;
+  }
+  if(!person.email){
+    return `<div class="field-row"><span class="k">Login</span><span class="v"><span class="sub2">No email on file — add one to enable login</span></span></div>`;
+  }
+  if(!approved){
+    return `<div class="field-row"><span class="k">Login</span><span class="v"><span class="sub2">${role==='companion'?'Mark active to enable their login':'Confirm to enable login'}</span></span></div>`;
+  }
+  return `<div class="field-row"><span class="k">Login</span><span class="v">
+    <button class="btn sm primary" onclick="createLogin('${role}','${person.id}')">✉️ Send login invite</button>
+    <div class="sub2" style="margin-top:4px">Emails ${person.email} a link to set their password</div></span></div>`;
+}
+function fmtDate(d){ try{ return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }catch(e){ return ''; } }
+async function createLogin(role, id){
+  const arr = role==='companion'?DB.companions:DB.requesters;
+  const person=(arr||[]).find(x=>x.id===id); if(!person) return;
+  if(!confirm(`Send ${person.full_name} an email invite to set their password and access their portal?`)) return;
+  if(typeof api!=='undefined' && api.live){
+    const res=await provisionLogin(role,id);
+    if(res.error){ alert('Could not create login: '+res.error); return; }
+    person.login_provisioned=true; person.login_invited_at=new Date().toISOString();
+    alert(`Invite sent to ${res.email}. They’ll set their own password and can then log in.`);
+  } else {
+    person.login_provisioned=true; person.login_invited_at=new Date().toISOString();
+    alert('Demo: in live mode this emails them a set-password link.');
+  }
+  if(role==='companion') openCompanion(id); else render();
 }
 
 /* ---------- VETTING CHECKLIST (tick each clearance step per applicant) ---------- */

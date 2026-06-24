@@ -10,8 +10,8 @@
    ============================================================ */
 
 const SB = {
-  url: (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) || 'https://bouyfsfcfjeordmaaaof.supabase.co',
-  key: (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvdXlmc2ZjZmplb3JkbWFhYW9mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3MjE5MzMsImV4cCI6MjA5NzI5NzkzM30.Y6KjAafCqTSX_njw4XDJZzv7Ccd6uIDbZW8TCU1JELI',
+  url: (typeof SUPABASE_URL !== 'undefined' && SUPABASE_URL) || '',
+  key: (typeof SUPABASE_ANON_KEY !== 'undefined' && SUPABASE_ANON_KEY) || '',
   token: null,            // access_token after login
   user: null,             // { id, email }
 };
@@ -158,6 +158,28 @@ const api = {
 };
 
 /* ---------- AI assist (dormant until deployed + enabled) ---------- */
+// Create a login for a companion/requester by emailing them a set-password
+// invite (Model A). Calls the provision-login Edge Function with the staff JWT.
+async function provisionLogin(role, id) {
+  if (!IS_LIVE) return { error: 'demo' };
+  let base = '';
+  try {
+    const rows = await supa.select('app_settings', `select=value&key=eq.ai_functions_url`);
+    base = rows && rows[0] ? rows[0].value : '';
+  } catch (e) {}
+  if (!base) return { error: 'Functions URL not configured' };
+  try {
+    const r = await fetch(`${base}/provision-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (SB.token || '') },
+      body: JSON.stringify({ role, id }),
+    });
+    const j = await r.json();
+    if (!r.ok) return { error: j.error || 'Could not create login' };
+    return { ok: true, email: j.email };
+  } catch (e) { return { error: String(e) }; }
+}
+
 async function aiAssist(task, data) {
   // live: call the ai-assist Edge Function. demo/not-configured: signal unavailable.
   if (!IS_LIVE) return { error: 'demo' };
