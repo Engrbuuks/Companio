@@ -1078,7 +1078,7 @@ function openCompanion(id){
     ${vettingChecklist(c)}
     <div class="section-t">Capacity & pay</div>
     <div class="field-row"><span class="k">Clients</span><span class="v">${used} / ${c.max_clients}</span></div>
-    <div class="field-row"><span class="k">Pay rate</span><span class="v">£${(c.hourly_pay||0).toFixed(2)}/hr</span></div>
+    <div class="field-row"><span class="k">Pay rate</span><span class="v">£<input type="number" value="${(c.hourly_pay||0).toFixed(2)}" min="0" step="0.5" onchange="savePay('${c.id}',this.value)" style="width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;text-align:right;font-family:inherit">/hr</span></div>
     <div class="section-t">Personality & interests</div>
     <div class="field-row"><span class="k">Temperament</span><span class="v">${cap(c.temperament)||'—'}</span></div>
     <div class="tags" style="margin-top:10px">${(c.interests||[]).map(i=>`<span class="tag">${i}</span>`).join('')||'<span class="sub2">No interest tags yet — add from their bio above</span>'}</div>
@@ -1102,6 +1102,11 @@ function loginRow(person, role){
     <div class="sub2" style="margin-top:4px">Emails ${person.email} a link to set their password</div></span></div>`;
 }
 function fmtDate(d){ try{ return new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }catch(e){ return ''; } }
+async function savePay(id, val){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  c.hourly_pay=Number(val)||0;
+  if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,{hourly_pay:c.hourly_pay}); }catch(e){ alert('Could not save pay rate: '+e.message); } }
+}
 async function createLogin(role, id){
   const arr = role==='companion'?DB.companions:DB.requesters;
   const person=(arr||[]).find(x=>x.id===id); if(!person) return;

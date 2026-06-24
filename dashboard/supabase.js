@@ -170,11 +170,13 @@ async function provisionLogin(role, id) {
     return { error: 'Could not read settings (check app_settings read policy): ' + (e.message || e) };
   }
   if (!base) return { error: 'Functions URL not set. Add ai_functions_url to app_settings and ensure it’s readable.' };
+  // where the invite link should land: the set-password page on this same site
+  const redirectTo = location.origin + '/set-password.html';
   try {
     const r = await fetch(`${base}/provision-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (SB.token || '') },
-      body: JSON.stringify({ role, id }),
+      body: JSON.stringify({ role, id, redirectTo }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return { error: j.error || ('Function error ' + r.status) };
