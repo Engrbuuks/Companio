@@ -21,7 +21,7 @@ const DEMO = {
   me:{id:'c1',full_name:'Linda Hartley',email:'linda@example.com',city:'Guildford',status:'active',offers:'both'},
   visits:[
     {id:'v2',scheduled_at:'2026-07-01T10:00',length_hrs:2,status:'scheduled',booking_id:'b1',user_name:'Joan Mensah'},
-    {id:'v1',scheduled_at:'2026-06-24T10:00',length_hrs:2,status:'completed',booking_id:'b1',user_name:'Joan Mensah'},
+    {id:'v1',scheduled_at:'2026-06-24T10:00',length_hrs:2,status:'completed',booking_id:'b1',user_name:'Joan Mensah',checked_in_at:'2026-06-24T10:02',checked_out_at:'2026-06-24T12:05'},
   ],
   notes:[{id:'n1',visit_id:'v1',summary:'Joan was in great spirits — crossword and two cups of tea. She told me about teaching in Lagos.',created_at:'2026-06-24',user_name:'Joan Mensah'}],
   avail:[{id:'a1',day:'mon',start_time:'10:00',end_time:'14:00'},{id:'a2',day:'wed',start_time:'10:00',end_time:'13:00'}],
@@ -134,15 +134,28 @@ function viewVisits(){
   const past=VISITS.filter(v=>v.status!=='scheduled');
   const card=v=>{
     const hasNote=NOTES.some(n=>n.visit_id===v.id);
+    const checkedIn=!!v.checked_in_at;
+    const checkedOut=!!v.checked_out_at || v.status==='completed';
+    let action='';
+    if(v.status==='scheduled' && !checkedIn){
+      action=`<button class="btn sm primary" onclick="checkIn('${v.id}')">📍 I've arrived</button>`;
+    } else if(checkedIn && !checkedOut){
+      action=`<div><span class="chip good">arrived ${v.checked_in_at?fmtTime(v.checked_in_at):''}</span>
+        <div style="margin-top:8px"><button class="btn sm primary" onclick="checkOut('${v.id}')">👋 I've finished</button></div></div>`;
+    } else if(checkedOut && !hasNote){
+      action=`<div><span class="chip good">visit done</span>
+        <div style="margin-top:8px"><button class="btn sm primary" onclick="openNote('${v.id}','${v.user_name.replace(/'/g,'')}')">Write note to family</button></div></div>`;
+    } else if(hasNote){
+      action='<span class="chip good">note sent</span>';
+    } else {
+      action=`<span class="chip ${v.status==='completed'?'good':'wheat'}">${cap(v.status)}</span>`;
+    }
     return `<div class="visit">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
         <div><div class="when">${fmt(v.scheduled_at)} · ${fmtTime(v.scheduled_at)}</div>
-          <div class="who">${v.user_name} · ${v.length_hrs}h</div></div>
-        <div style="text-align:right">
-          <span class="chip ${v.status==='completed'?'good':'wheat'}">${cap(v.status)}</span>
-          ${v.status==='completed'&&!hasNote?`<div style="margin-top:8px"><button class="btn sm primary" onclick="openNote('${v.id}','${v.user_name.replace(/'/g,'')}')">Write note to family</button></div>`:''}
-          ${hasNote?'<div style="margin-top:8px"><span class="chip good">note sent</span></div>':''}
-        </div>
+          <div class="who">${v.user_name} · ${v.length_hrs}h</div>
+          ${checkedIn&&checkedOut?`<div class="sub2" style="font-size:.78rem;margin-top:4px">In ${fmtTime(v.checked_in_at)} · out ${fmtTime(v.checked_out_at)}</div>`:''}</div>
+        <div style="text-align:right">${action}</div>
       </div></div>`;
   };
   return `${upcoming.length?`<div class="panel"><div class="panel-h"><h3>Upcoming</h3></div>${upcoming.map(card).join('')}</div>`:''}
@@ -201,6 +214,25 @@ async function aiDraftNote(visitId,userName){
   }
   if(btn){btn.textContent='✨ AI draft';btn.disabled=false;}
 }
+async function checkIn(visitId){
+  const v=VISITS.find(x=>x.id===visitId); if(!v) return;
+  if(typeof IS_LIVE!=='undefined' && IS_LIVE){
+    try{ await supa.rpc('check_in_visit',{p_visit:visitId}); }catch(e){ alert('Could not check in: '+e.message); return; }
+  }
+  v.checked_in_at=new Date().toISOString();
+  renderTab();
+}
+async function checkOut(visitId){
+  const v=VISITS.find(x=>x.id===visitId); if(!v) return;
+  if(!confirm('Mark this visit as finished? The family will see it’s complete, and you can write them a note next.')) return;
+  if(typeof IS_LIVE!=='undefined' && IS_LIVE){
+    try{ await supa.rpc('check_out_visit',{p_visit:visitId}); }catch(e){ alert('Could not finish: '+e.message); return; }
+  }
+  v.checked_out_at=new Date().toISOString();
+  v.status='completed';
+  renderTab();
+}
+
 async function saveNote(visitId){
   const text=$('#noteText').value.trim();
   if(!text){ $('#noteText').focus(); return; }

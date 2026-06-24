@@ -477,6 +477,14 @@ async function runPayout(name){
 /* ---------- ACTION ITEMS (what needs attention) ---------- */
 function computeActions(){
   const items=[];
+  // MISSED CHECK-IN: scheduled visit, start time passed by >20 min, no check-in
+  const now=new Date(); const GRACE=20*60000;
+  DB.visits.filter(v=>v.status==='scheduled' && !v.checked_in_at && (now-new Date(v.scheduled_at))>GRACE).forEach(v=>{
+    const b=DB.bookings.find(x=>x.id===v.booking_id); const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);
+    const c=DB.companions.find(x=>x.id===v.companion_id);
+    const mins=Math.floor((now-new Date(v.scheduled_at))/60000);
+    items.push({kind:'missed_checkin',sev:'high',label:`⚠ ${u?u.full_name:'A visit'} — ${c?c.full_name:'companion'} hasn’t checked in (${mins}m late)`,ref:v.id});
+  });
   // notes due
   DB.visits.filter(v=>v.status==='completed' && !DB.visit_notes.some(n=>n.visit_id===v.id)).forEach(v=>{
     const b=DB.bookings.find(x=>x.id===v.booking_id); const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);

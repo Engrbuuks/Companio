@@ -122,11 +122,27 @@ function viewNotes(){
 function viewVisits(){
   if(!VISITS.length) return `<div class="panel"><div class="empty">Upcoming visits will appear here once scheduled.</div></div>`;
   const up=VISITS.filter(v=>v.status==='scheduled'), past=VISITS.filter(v=>v.status!=='scheduled');
-  const card=v=>`<div class="row"><div style="display:flex;justify-content:space-between;align-items:center">
+  // next-visit reassurance banner
+  const next=up.slice().sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at))[0];
+  const reassure=next?`<div class="panel" style="border-color:var(--wheat);background:rgba(231,184,106,.06)">
+    <div style="padding:18px 22px">
+      <div class="muted" style="font-size:.82rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--wheat-deep)">Next visit</div>
+      <div style="font-family:var(--serif);font-size:1.35rem;color:var(--aubergine-dark);margin-top:4px">${next.companion_name} visits ${next.user_name.split(' ')[0]}</div>
+      <div style="margin-top:2px;font-weight:700">${fmt(next.scheduled_at)} at ${fmtTime(next.scheduled_at)}</div>
+    </div></div>`:'';
+  const card=v=>{
+    const inProgress=v.checked_in_at && !v.checked_out_at && v.status==='scheduled';
+    let status;
+    if(inProgress) status='<span class="chip good" style="background:rgba(46,125,82,.15)">● Visiting now</span>';
+    else if(v.status==='completed') status=`<span class="chip good">completed${v.checked_out_at?' '+fmtTime(v.checked_out_at):''}</span>`;
+    else status=`<span class="chip wheat">${cap(v.status)}</span>`;
+    return `<div class="row"><div style="display:flex;justify-content:space-between;align-items:center">
     <div><div class="name">${fmt(v.scheduled_at)} · ${fmtTime(v.scheduled_at)}</div>
-      <div class="muted" style="font-size:.9rem">${v.companion_name} · ${v.length_hrs}h</div></div>
-    <span class="chip ${v.status==='completed'?'good':'wheat'}">${cap(v.status)}</span></div></div>`;
-  return `${up.length?`<div class="panel"><div class="panel-h"><h3>Upcoming</h3></div>${up.map(card).join('')}</div>`:''}
+      <div class="muted" style="font-size:.9rem">${v.companion_name} · ${v.length_hrs}h${v.checked_in_at&&v.checked_out_at?` · arrived ${fmtTime(v.checked_in_at)}, left ${fmtTime(v.checked_out_at)}`:''}</div></div>
+    ${status}</div></div>`;
+  };
+  return `${reassure}
+    ${up.length?`<div class="panel"><div class="panel-h"><h3>Upcoming</h3></div>${up.map(card).join('')}</div>`:''}
     ${past.length?`<div class="panel"><div class="panel-h"><h3>Past visits</h3></div>${past.map(card).join('')}</div>`:''}`;
 }
 
