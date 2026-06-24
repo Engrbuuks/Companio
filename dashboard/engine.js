@@ -258,20 +258,45 @@ function viewOverview(){
   return out;
 }
 
+let compFilter={status:'all', q:''};
+function gotoCompanions(status){ compFilter.status=status||'all'; compFilter.q=''; current='companions'; renderNav(); render(); }
+function setCompFilter(status){ compFilter.status=status; render(); }
 function viewCompanions(){
-  const rows=DB.companions.map(c=>{
+  const STATUSES=['all','active','vetting','applicant','paused','offboarded','rejected'];
+  const q=(compFilter.q||'').toLowerCase();
+  let list=DB.companions.filter(c=>{
+    if(compFilter.status!=='all' && c.status!==compFilter.status) return false;
+    if(q){
+      const hay=`${c.full_name} ${c.city||''} ${c.postcode||''} ${c.email||''} ${c.phone||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const rows=list.map(c=>{
     const used=DB.bookings.filter(b=>b.companion_id===c.id&&b.status==='active').length;
     return `<tr class="row" data-comp="${c.id}">
-      <td><div class="name">${c.full_name}</div><div class="sub2">${c.city} · ${c.postcode}</div></td>
+      <td><div class="name">${c.full_name}</div><div class="sub2">${c.city||''} · ${c.postcode||''}</div></td>
       <td><span class="chip ${statusChip(c.status)}">${cap(c.status)}</span></td>
       <td><span class="chip ${dbsChip(c.dbs)}">DBS ${c.dbs}</span></td>
       <td><span class="dot ${c.offers}"></span> ${cap(c.offers)}</td>
       <td>${c.status==='active'?`${used}/${c.max_clients}`:'—'}</td>
-      <td>£${c.hourly_pay.toFixed(2)}</td>
-    </tr>`;}).join('');
-  return head('Supply','Companions','Your roster. Solve supply before demand — fill the gate of 5–8 great people before scaling marketing.')+`
-  <div class="panel"><div class="panel-h"><h3>Roster (${DB.companions.length})</h3><button class="btn sm primary" onclick="openAddApplicant()">+ Add companion</button></div>
-  <div class="panel-b"><table><thead><tr><th>Name</th><th>Status</th><th>Vetting</th><th>Offers</th><th>Clients</th><th>Pay/hr</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+      <td>£${(c.hourly_pay||0).toFixed(2)}</td>
+    </tr>`;}).join('')||`<tr><td colspan="6"><div class="empty" style="padding:20px">No companions match.</div></td></tr>`;
+  const counts={};
+  STATUSES.forEach(s=>counts[s]=s==='all'?DB.companions.length:DB.companions.filter(c=>c.status===s).length);
+  const tabs=STATUSES.filter(s=>s==='all'||counts[s]>0).map(s=>
+    `<button class="btn sm ${compFilter.status===s?'primary':''}" onclick="setCompFilter('${s}')">${s==='all'?'All':cap(s)} ${counts[s]?`<span class="sub2">(${counts[s]})</span>`:''}</button>`).join(' ');
+  return head('Supply','Companions','Your roster. Search and filter as it grows — this scales to hundreds without clutter.')+`
+  <div class="panel"><div class="panel-h">
+    <h3>Roster (${list.length}${list.length!==DB.companions.length?` of ${DB.companions.length}`:''})</h3>
+    <button class="btn sm primary" onclick="openAddApplicant()">+ Add companion</button></div>
+    <div class="panel-b" style="padding:14px 20px 0">
+      <input type="search" placeholder="Search name, town, postcode, email…" value="${compFilter.q||''}"
+        oninput="compFilter.q=this.value;clearTimeout(window._cfT);window._cfT=setTimeout(render,150)"
+        style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin-bottom:12px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${tabs}</div>
+    </div>
+    <div class="panel-b"><table><thead><tr><th>Name</th><th>Status</th><th>Vetting</th><th>Offers</th><th>Clients</th><th>Pay/hr</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 
 function viewRequesters(){
@@ -513,12 +538,17 @@ function viewPipeline(){
 
   const sourceChip=s=>s?`<span class="chip" style="background:rgba(155,138,168,.16);color:var(--aubergine);border:none">${cap(s)}</span>`:'';
 
-  const cols=stages.map(st=>{
+  // RECRUITING columns = the stages you actively move people through (small by nature).
+  // Active & Paused are NOT shown as endless card stacks — they're summarised with a
+  // count and a link to the searchable Companions roster (scales to hundreds cleanly).
+  const recruitingStages=stages.filter(s=>['applicant','vetting'].includes(s.key));
+  const cols=recruitingStages.map(st=>{
     const people=DB.companions.filter(c=>c.status===st.key);
-    return `<div style="flex:1;min-width:230px">
+    return `<div style="flex:1;min-width:250px;max-width:420px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid ${st.accent}">
         <div><div style="font-weight:800;color:var(--aubergine-dark)">${st.label}</div><div class="sub2">${st.hint}</div></div>
         <span class="chip" style="background:${st.accent};color:#fff;border:none;font-weight:800">${people.length}</span></div>
+      <div style="max-height:62vh;overflow-y:auto;padding-right:4px">
       ${people.map(c=>{
         const dueIn=c.next_action_due?Math.floor((new Date(c.next_action_due)-today)/86400000):null;
         const fuChip = c.next_action ? `<div style="margin-top:9px;padding:7px 9px;background:var(--mist);border-radius:7px;border-left:3px solid ${dueIn!=null&&dueIn<0?'var(--bad)':'var(--wheat)'}">
@@ -540,9 +570,24 @@ function viewPipeline(){
         ${fuChip}
         <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap" onclick="event.stopPropagation()">
           ${stageActions(c,st.key)}
-          ${['applicant','vetting'].includes(st.key)?`<button class="btn sm" onclick="openFollowUp('${c.id}')">📝 Follow-up</button>`:''}
+          <button class="btn sm" onclick="openFollowUp('${c.id}')">📝 Follow-up</button>
         </div>
-      </div>`;}).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None</div>`}
+      </div>`;}).join('')||`<div class="empty" style="padding:18px;font-size:.85rem">None right now</div>`}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Active & Paused summary cards (scale-safe — counts + jump to roster)
+  const activePaused=[
+    {key:'active',label:'Active companions',hint:'Working now',accent:'var(--good)'},
+    {key:'paused',label:'Paused',hint:'On hold',accent:'var(--muted)'},
+  ].map(s=>{
+    const n=DB.companions.filter(c=>c.status===s.key).length;
+    return `<div class="ip-card" style="flex:1;min-width:200px;padding:16px 18px;border-left:4px solid ${s.accent}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-weight:800;color:var(--aubergine-dark)">${s.label}</div><div class="sub2">${s.hint}</div></div>
+        <div style="font-size:1.8rem;font-weight:800;color:var(--aubergine-dark)">${n}</div></div>
+      ${n>0?`<button class="btn sm" style="margin-top:10px" onclick="gotoCompanions('${s.key}')">View ${s.key==='active'?'roster':'paused'} →</button>`:'<div class="sub2" style="margin-top:8px">None yet</div>'}
     </div>`;
   }).join('');
 
@@ -569,8 +614,10 @@ function viewPipeline(){
       ${f.c.phone?`<a href="tel:${f.c.phone}" class="btn sm">📞 Call</a>`:''}
       <button class="btn sm" onclick="openFollowUp('${f.c.id}')">Update</button>
     </div>`).join('')}</div></div>`:''}
-  <div class="panel"><div class="panel-h"><h3>Pipeline</h3><span class="muted" style="font-size:.82rem">tap a card for full profile</span></div>
+  <div class="panel"><div class="panel-h"><h3>Active recruiting</h3><span class="muted" style="font-size:.82rem">applicants & vetting — tap a card for full profile</span></div>
   <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>
+  <div class="panel"><div class="panel-h"><h3>Your roster</h3><span class="muted" style="font-size:.82rem">manage the full list in Companions</span></div>
+  <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;flex-wrap:wrap">${activePaused}</div></div></div>
   ${(off.length||rejected.length)?`<div class="panel"><div class="panel-h"><h3>Not active</h3></div><div class="panel-b" style="padding:10px 20px">
     ${off.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}</span></span><span class="chip">offboarded</span></div>`).join('')}
     ${rejected.map(c=>`<div class="row" style="padding:9px 0;display:flex;justify-content:space-between"><span>${c.full_name} <span class="sub2">· ${c.city||''}${c.reject_reason?' · '+c.reject_reason:''}</span></span><span class="chip bad">not suitable</span></div>`).join('')}
@@ -1006,21 +1053,64 @@ function closeDrawer(){$('#drawer').classList.remove('open');$('#drawerBg').clas
 function openCompanion(id){
   const c=DB.companions.find(x=>x.id===id);
   const used=DB.bookings.filter(b=>b.companion_id===c.id&&b.status==='active').length;
-  openDrawer(`<div class="drawer-h"><div><h2>${c.full_name}</h2><div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${c.city} · ${c.postcode}</div></div><button class="x" onclick="closeDrawer()">×</button></div>
+  openDrawer(`<div class="drawer-h"><div><h2>${c.full_name}</h2><div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${c.city||''} · ${c.postcode||''}</div></div><button class="x" onclick="closeDrawer()">×</button></div>
   <div class="drawer-b">
-    <p>${c.bio}</p>
-    <div class="section-t">Status & vetting</div>
+    <p>${c.bio||''}</p>
+    <div class="section-t">Status</div>
     <div class="field-row"><span class="k">Status</span><span class="v"><span class="chip ${statusChip(c.status)}">${cap(c.status)}</span></span></div>
-    <div class="field-row"><span class="k">DBS</span><span class="v"><span class="chip ${dbsChip(c.dbs)}">${c.dbs}</span></span></div>
     <div class="field-row"><span class="k">Offers</span><span class="v"><span class="dot ${c.offers}"></span> ${cap(c.offers)}</span></div>
-    <div class="field-row"><span class="k">Has car</span><span class="v">${c.has_car?'Yes':'No'}</span></div>
+    ${vettingChecklist(c)}
     <div class="section-t">Capacity & pay</div>
     <div class="field-row"><span class="k">Clients</span><span class="v">${used} / ${c.max_clients}</span></div>
-    <div class="field-row"><span class="k">Pay rate</span><span class="v">£${c.hourly_pay.toFixed(2)}/hr</span></div>
+    <div class="field-row"><span class="k">Pay rate</span><span class="v">£${(c.hourly_pay||0).toFixed(2)}/hr</span></div>
     <div class="section-t">Personality & interests</div>
-    <div class="field-row"><span class="k">Temperament</span><span class="v">${cap(c.temperament)}</span></div>
-    <div class="tags" style="margin-top:10px">${c.interests.map(i=>`<span class="tag">${i}</span>`).join('')}</div>
+    <div class="field-row"><span class="k">Temperament</span><span class="v">${cap(c.temperament)||'—'}</span></div>
+    <div class="tags" style="margin-top:10px">${(c.interests||[]).map(i=>`<span class="tag">${i}</span>`).join('')||'<span class="sub2">No interest tags yet — add from their bio above</span>'}</div>
   </div>`);
+}
+
+/* ---------- VETTING CHECKLIST (tick each clearance step per applicant) ---------- */
+const VETTING_CHECKS=[
+  {key:'chk_interview',     label:'Interview / met them',      hint:'You’ve spoken with them properly'},
+  {key:'chk_right_to_work', label:'Right to work confirmed',   hint:'gov.uk online check done'},
+  {key:'chk_dbs_submitted', label:'DBS submitted',             hint:'Application sent via umbrella body'},
+  {key:'chk_dbs_cleared',   label:'DBS cleared',               hint:'Certificate back and clear'},
+  {key:'chk_references',    label:'References received',       hint:'2 referees contacted'},
+  {key:'chk_training',      label:'Induction / training done', hint:'Ready to visit clients'},
+];
+function vettingChecklist(c){
+  const done=VETTING_CHECKS.filter(ch=>c[ch.key]).length;
+  const total=VETTING_CHECKS.length;
+  const pct=Math.round(done/total*100);
+  const rows=VETTING_CHECKS.map(ch=>{
+    const on=!!c[ch.key];
+    return `<label class="vchk" style="display:flex;align-items:flex-start;gap:11px;padding:10px 2px;cursor:pointer;border-bottom:1px solid var(--line)">
+      <input type="checkbox" ${on?'checked':''} onchange="toggleCheck('${c.id}','${ch.key}',this.checked)" style="width:20px;height:20px;margin-top:1px;accent-color:var(--good);cursor:pointer">
+      <span style="flex:1"><span style="font-weight:700;${on?'color:var(--good)':''}">${ch.label}</span>
+        <div class="sub2" style="font-size:.78rem">${ch.hint}</div></span>
+      ${on?'<span class="chip good" style="align-self:center">done</span>':''}
+    </label>`;
+  }).join('');
+  return `<div class="section-t" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Vetting checklist</span>
+      <span class="chip ${done===total?'good':'warn'}">${done}/${total} done</span></div>
+    <div style="background:var(--line);border-radius:99px;height:7px;margin:2px 0 10px"><div style="width:${pct}%;height:7px;border-radius:99px;background:${done===total?'var(--good)':'var(--wheat)'}"></div></div>
+    ${rows}
+    ${done===total?`<div style="margin-top:10px;padding:10px 12px;background:rgba(46,125,82,.08);border-radius:8px;color:var(--good);font-weight:700;font-size:.86rem">✓ Fully cleared — safe to mark active.</div>`:''}`;
+}
+async function toggleCheck(id,key,val){
+  const c=DB.companions.find(x=>x.id===id); if(!c) return;
+  c[key]=val;
+  // mirror into the existing flags the pipeline/safety-gate use
+  if(key==='chk_references') c.references_ok=val;
+  if(key==='chk_dbs_cleared' && val){ c.dbs='cleared'; }
+  else if(key==='chk_dbs_submitted' && val && c.dbs!=='cleared'){ c.dbs='submitted'; }
+  if(typeof api!=='undefined' && api.live){
+    const patch={[key]:val};
+    try{ await supa.update('companions',id,patch); }catch(e){ alert('Could not save: '+e.message); }
+  }
+  // re-render the drawer so progress + chips update live
+  openCompanion(id);
 }
 function openUser(id){
   const u=DB.service_users.find(x=>x.id===id);const r=DB.requesters.find(x=>x.id===u.requester_id);
