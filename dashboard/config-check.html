@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Companio — Config Check</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:680px;margin:40px auto;padding:0 20px;color:#322E3D;line-height:1.5}
+  h1{font-size:1.3rem}
+  .row{padding:12px 14px;border-radius:10px;margin:8px 0;border:1px solid #e3ddd3}
+  .ok{background:rgba(0,135,59,.08);border-color:rgba(0,135,59,.3)}
+  .bad{background:rgba(205,18,35,.06);border-color:rgba(205,18,35,.3)}
+  .warn{background:rgba(231,184,106,.12);border-color:rgba(231,184,106,.5)}
+  code{background:#f3eee6;padding:1px 6px;border-radius:5px;font-size:.9em;word-break:break-all}
+  .verdict{font-size:1.05rem;font-weight:800;margin-top:18px;padding:14px;border-radius:12px}
+  b{font-weight:800}
+</style>
+</head>
+<body>
+<h1>Companio — Configuration Check</h1>
+<p class="muted">This page loads <code>config.js</code> exactly the way the dashboard does, then tells you what it sees. Open it at <code>dashboard.mycompanio.co.uk/config-check.html</code> (incognito).</p>
+
+<!-- load config the same way the real pages do -->
+<script src="config.js"></script>
+
+<div id="report"></div>
+
+<script>
+(function(){
+  var R = document.getElementById('report');
+  function add(cls, html){ var d=document.createElement('div'); d.className='row '+cls; d.innerHTML=html; R.appendChild(d); }
+
+  // 1. Did config.js even load and define the globals?
+  var hasUrlVar = (typeof SUPABASE_URL !== 'undefined');
+  var hasKeyVar = (typeof SUPABASE_ANON_KEY !== 'undefined');
+  var hasWinUrl = (typeof window.SUPABASE_URL !== 'undefined');
+
+  if (!hasUrlVar && !hasWinUrl) {
+    add('bad', '❌ <b>config.js did NOT load, or defined nothing.</b><br>The browser could not find <code>config.js</code> in this folder, or it is blank/cached. ' +
+      'Check: is <code>config.js</code> in the SAME folder as this page on the server? Try a hard refresh (Ctrl+Shift+R).');
+  } else {
+    add('ok', '✅ <b>config.js loaded</b> and defined the variables.');
+  }
+
+  var url = (typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : '') || (window.SUPABASE_URL || '');
+  var key = (typeof SUPABASE_ANON_KEY !== 'undefined' ? SUPABASE_ANON_KEY : '') || (window.SUPABASE_ANON_KEY || '');
+
+  // 2. URL checks
+  if (!url) {
+    add('bad', '❌ <b>SUPABASE_URL is empty.</b> The value did not come through.');
+  } else {
+    var urlIssues = [];
+    if (/\s/.test(url)) urlIssues.push('contains a space or line-break');
+    if (/[\u2018\u2019\u201C\u201D]/.test(url)) urlIssues.push('contains a “smart quote” — re-type using normal quotes');
+    if (url.slice(-1) === '/') urlIssues.push('has a trailing slash (remove it)');
+    if (!/^https:\/\//.test(url)) urlIssues.push('does not start with https://');
+    if (!/\.supabase\.co/.test(url)) urlIssues.push('does not contain .supabase.co — check you used .co not .com');
+    if (urlIssues.length) {
+      add('bad', '❌ <b>SUPABASE_URL looks wrong:</b> '+urlIssues.join('; ')+'.<br>Value seen: <code>'+escapeHtml(url)+'</code>');
+    } else {
+      add('ok', '✅ <b>SUPABASE_URL looks valid:</b> <code>'+escapeHtml(url)+'</code>');
+    }
+  }
+
+  // 3. Key checks
+  if (!key) {
+    add('bad', '❌ <b>SUPABASE_ANON_KEY is empty.</b> The value did not come through.');
+  } else {
+    var keyIssues = [];
+    if (/\s/.test(key)) keyIssues.push('contains a space or line-break (the key must be one unbroken string)');
+    if (/[\u2018\u2019\u201C\u201D]/.test(key)) keyIssues.push('contains a “smart quote”');
+    if (key.indexOf('eyJ') !== 0) keyIssues.push('does not start with "eyJ" — that is unusual for an anon key; double-check you pasted the anon/public key');
+    if (key.length < 100) keyIssues.push('looks too short (anon keys are long, ~200+ chars)');
+    // crude check: is this maybe the service_role key by mistake?
+    if (/service_role/.test(key)) keyIssues.push('appears to be the SERVICE_ROLE key — config.js must use the ANON/public key');
+    if (keyIssues.length) {
+      add('warn', '⚠️ <b>SUPABASE_ANON_KEY may be wrong:</b> '+keyIssues.join('; ')+'.<br>Length seen: '+key.length+' chars. Starts with: <code>'+escapeHtml(key.slice(0,12))+'…</code>');
+    } else {
+      add('ok', '✅ <b>SUPABASE_ANON_KEY looks valid</b> ('+key.length+' chars, starts <code>eyJ…</code>)');
+    }
+  }
+
+  // 4. The decisive line: what the dashboard computes
+  var IS_LIVE = !!(url && key);
+  add(IS_LIVE ? 'ok' : 'bad', (IS_LIVE
+      ? '✅ <b>IS_LIVE = true</b> — the dashboard should run on your real data, not demo.'
+      : '❌ <b>IS_LIVE = false</b> — this is why the dashboard shows <b>demo</b>. One of the two values above is empty/invalid.'));
+
+  // 5. Live connectivity test (only if we have both)
+  if (IS_LIVE) {
+    add('warn', '⏳ Testing a real connection to Supabase…');
+    fetch(url.replace(/\/$/,'') + '/rest/v1/companions?select=id&limit=1', {
+      headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+    }).then(function(r){
+      if (r.status === 200) {
+        add('ok', '✅ <b>Connection works</b> — Supabase accepted the key and returned data. Your dashboard is correctly configured. If it still says demo, you are looking at a CACHED page — hard-refresh in incognito.');
+      } else if (r.status === 401 || r.status === 403) {
+        add('bad', '❌ <b>Supabase rejected the key (HTTP '+r.status+').</b> The anon key is wrong, expired, or from a different project. Re-copy it from Supabase → Project Settings → API → "anon public".');
+      } else {
+        add('warn', '⚠️ Supabase replied with HTTP '+r.status+'. The key may be fine but RLS or the table is blocking the read. (A 200 is what we want.)');
+      }
+    }).catch(function(e){
+      add('bad', '❌ <b>Could not reach Supabase</b> — '+escapeHtml(String(e))+'. Check the URL is exactly right and the project is active.');
+    });
+  }
+
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+})();
+</script>
+</body>
+</html>

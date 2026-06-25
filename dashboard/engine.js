@@ -12,7 +12,7 @@ const DB = {
     {id:'c2',full_name:'Grace Owens',source:'referral',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
     {id:'c3',full_name:'Margaret Hill',source:'flyer',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
     {id:'c4',full_name:'Eleanor Voss',source:'website',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
-    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',phone:'07700 900345',email:'tom.bridges@email.com',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,source:'referral',last_contact_at:'2026-06-10',next_action:'Chase DBS application',next_action_due:'2026-06-20',stage_changed_at:'2026-06-08',bio:'Awaiting DBS clearance.'},
+    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',phone:'07700 900345',email:'tom.bridges@email.com',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,source:'website',last_contact_at:'2026-06-10',next_action:'Chase DBS application',next_action_due:'2026-06-20',stage_changed_at:'2026-06-08',bio:'Awaiting DBS clearance.',availability:['weekday_morning','weekend'],right_to_work:true,age_band:'45-54',fav_music:'Motown and a bit of Springsteen',heard_about:'facebook'},
   ],
   requesters: [
     {id:'r1',full_name:'Sarah Mensah',email:'sarah@example.com',phone:'07700 900201',status:'active',source:'matcher',
@@ -1163,9 +1163,17 @@ function openCompanion(id){
     <div class="field-row"><span class="k">Pay rate</span><span class="v">£<input type="number" value="${(c.hourly_pay||0).toFixed(2)}" min="0" step="0.5" onchange="savePay('${c.id}',this.value)" style="width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;text-align:right;font-family:inherit">/hr</span></div>
     <div class="section-t">Personality & interests</div>
     <div class="field-row"><span class="k">Temperament</span><span class="v">${cap(c.temperament)||'—'}</span></div>
+    ${c.fav_music?`<div class="field-row"><span class="k">Music</span><span class="v">${c.fav_music}</span></div>`:''}
     <div class="tags" style="margin-top:10px">${(c.interests||[]).map(i=>`<span class="tag">${i}</span>`).join('')||'<span class="sub2">No interest tags yet — add from their bio above</span>'}</div>
+    <div class="section-t">Practical</div>
+    ${(c.availability&&c.availability.length)?`<div class="field-row"><span class="k">Availability</span><span class="v">${c.availability.map(a=>availLabel(a)).join(', ')}</span></div>`:''}
+    <div class="field-row"><span class="k">Right to work</span><span class="v">${c.right_to_work===true?'<span class="chip good">declared ✓</span>':c.right_to_work===false?'<span class="chip warn">not declared</span>':'—'}</span></div>
+    <div class="field-row"><span class="k">Can drive</span><span class="v">${c.has_car?'Yes':'No'}</span></div>
+    ${c.age_band?`<div class="field-row"><span class="k">Age band</span><span class="v">${c.age_band}</span></div>`:''}
+    ${c.heard_about?`<div class="field-row"><span class="k">Heard via</span><span class="v">${cap(c.heard_about)}</span></div>`:''}
   </div>`);
 }
+function availLabel(a){return ({weekday_morning:'Weekday mornings',weekday_afternoon:'Weekday afternoons',evening:'Evenings',weekend:'Weekends',flexible:'Flexible'}[a])||a;}
 
 /* ---------- LOGIN PROVISIONING (Model A: invite on approval) ---------- */
 function loginRow(person, role){
