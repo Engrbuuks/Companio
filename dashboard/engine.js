@@ -19,8 +19,11 @@ const DB = {
      matcher_notes:'For: My mum · Enjoys: A good chat & a cuppa · Frequency: Once a week, gently · Suggested match: Linda'},
   ],
   service_users: [
-    {id:'u1',requester_id:'r1',full_name:'Joan Mensah',relationship:'adult_child',city:'Guildford',postcode:'GU1 3AB',interests:['cards','music','tea','history'],temperament:'chatty',notes:'Loves a long chat and a milky tea. Hard of hearing on the left.',mobility_notes:'Walks with a stick; short strolls fine.'},
+    {id:'u1',requester_id:'r1',full_name:'Joan Mensah',relationship:'adult_child',city:'Guildford',postcode:'GU1 3AB',interests:['cards','music','tea','history'],temperament:'chatty',notes:'Loves a long chat and a milky tea. Hard of hearing on the left.',mobility_notes:'Walks with a stick; short strolls fine.',fav_music:'Vera Lynn, wartime classics and a bit of jazz',routines:'Tea at 4pm sharp; likes the radio on in the mornings.',dietary:'No added salt; soft foods easier since her dentures.',birthday:'1939-03-12',important_dates:'Wedding anniversary 14 Sept (widowed 2019).',family_details:'Son Daniel visits Sundays. Daughter in Canada calls Weds.',conversation_starters:'Ask about her years teaching infants in Leeds.'},
     {id:'u2',requester_id:'r1',full_name:'Albert Mensah',relationship:'adult_child',city:'Guildford',postcode:'GU1 3AB',interests:['tech','reading','quiet','tea'],temperament:'calm',notes:'Struggles with his tablet and the post pile. Prefers calm company.',mobility_notes:''},
+  ],
+  safeguarding_concerns: [
+    {id:'sg1',service_user_id:'u1',companion_id:'c1',visit_id:null,category:'wellbeing',severity:2,description:'Joan seemed quieter than usual today and said she had not slept. Worth keeping an eye on.',status:'open',raised_at:'2026-06-24T15:40:00Z'},
   ],
   bookings: [
     {id:'b1',requester_id:'r1',service_user_id:'u1',companion_id:'c1',service:'companionship',frequency:'weekly',hourly_rate:32,visit_length_hrs:2,status:'active',start_date:'2026-06-24'},
@@ -76,6 +79,11 @@ function matchScore(user, comp){
   const active = DB.bookings.filter(b=>b.companion_id===comp.id&&b.status==='active').length;
   if(active<comp.max_clients){s+=Math.max(0,10-active);reasons.push(`${comp.max_clients-active} client slots free`);}
   else reasons.push('at capacity');
+  // music affinity (up to +6) — companion interest echoed in client's favourite music
+  if(user.fav_music && user.fav_music.trim() && comp.interests.length){
+    const m=user.fav_music.toLowerCase();
+    if(comp.interests.some(i=>m.includes(i.toLowerCase()))){s+=6;reasons.push('shares a love of their kind of music');}
+  }
   return {score:Math.min(s,100),reasons};
 }
 function suggestMatches(userId,limit=5){
@@ -103,6 +111,7 @@ const TABS=[
   {id:'schedule',ico:'▦',label:'Schedule'},
   {id:'bookings',ico:'✦',label:'Bookings'},
   {id:'visits',ico:'✓',label:'Visits & Notes'},
+  {id:'safeguarding',ico:'⚑',label:'Safeguarding'},
   {id:'finance',ico:'£',label:'Finance'},
   {id:'reports',ico:'▲',label:'Reports'},
   {id:'settings',ico:'⚙',label:'Settings'},
@@ -207,11 +216,83 @@ function render(){
   else if(current==='requesters') v.innerHTML=viewRequesters();
   else if(current==='bookings') v.innerHTML=viewBookings();
   else if(current==='visits') v.innerHTML=viewVisits();
+  else if(current==='safeguarding') v.innerHTML=viewSafeguarding();
   else if(current==='finance') v.innerHTML=viewFinance();
   else if(current==='reports') v.innerHTML=viewReports();
   else if(current==='settings') v.innerHTML=viewSettings();
   bindRows();
   drawCharts();
+}
+
+/* ---------- SAFEGUARDING ---------- */
+const SG_CATS={wellbeing:'Wellbeing',self_neglect:'Self-neglect',cognitive:'Confusion / memory',financial:'Financial concern',physical:'Physical / a fall',abuse:'Suspected abuse',environment:'Unsafe home',other:'Other'};
+const SG_SEV={1:'Low',2:'Medium',3:'Urgent'};
+const sgList=()=>DB.safeguarding_concerns||[];
+const sgOpen=()=>sgList().filter(s=>['open','reviewing'].includes(s.status))
+  .sort((a,b)=>(b.severity-a.severity)||(new Date(b.raised_at)-new Date(a.raised_at)));
+function sgUserName(id){const u=DB.service_users.find(x=>x.id===id);return u?u.full_name:'a client';}
+function sgCompName(id){const c=DB.companions.find(x=>x.id===id);return c?c.full_name:'a companion';}
+function sevChip(sev){return `<span class="chip ${sev>=3?'bad':sev===2?'warn':''}">${SG_SEV[sev]||'—'}</span>`;}
+
+// Banner on Overview — only shows when there are open concerns
+function sgBanner(){
+  const open=sgOpen();
+  if(!open.length) return '';
+  const urgent=open.filter(s=>s.severity>=3).length;
+  return `<div class="panel" style="border:1px solid rgba(179,64,58,.35);background:rgba(179,64,58,.05);margin-bottom:14px">
+    <div class="panel-b" style="padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="font-size:1.4rem">⚑</div>
+      <div style="flex:1;min-width:220px">
+        <b style="color:var(--bad,#b3402f)">${open.length} open safeguarding ${open.length===1?'concern':'concerns'}${urgent?` · ${urgent} urgent`:''}</b>
+        <div class="sub2" style="margin-top:2px">${open.slice(0,2).map(s=>`${sgUserName(s.service_user_id)} — ${SG_CATS[s.category]}`).join(' · ')}${open.length>2?` · +${open.length-2} more`:''}</div>
+      </div>
+      <button class="btn sm primary" onclick="current='safeguarding';renderNav();render()">Review now</button>
+    </div></div>`;
+}
+
+function viewSafeguarding(){
+  const open=sgOpen();
+  const closed=sgList().filter(s=>['actioned','referred','closed'].includes(s.status))
+    .sort((a,b)=>new Date(b.actioned_at||b.raised_at)-new Date(a.actioned_at||a.raised_at));
+  const card=s=>`<div class="panel" style="margin-bottom:10px${s.severity>=3&&['open','reviewing'].includes(s.status)?';border-left:4px solid var(--bad,#b3402f)':''}">
+    <div class="panel-b" style="padding:14px 18px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <b>${sgUserName(s.service_user_id)}</b> ${sevChip(s.severity)} <span class="tag">${SG_CATS[s.category]||s.category}</span>
+          <div class="sub2" style="margin-top:6px;max-width:620px">${s.description}</div>
+          <div class="muted" style="font-size:.78rem;margin-top:6px">Raised by ${sgCompName(s.companion_id)} · ${fmt(s.raised_at)}${s.action_taken?` · <b>Action:</b> ${s.action_taken}`:''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${['open','reviewing'].includes(s.status)
+            ? `<button class="btn sm" onclick="sgTriage('${s.id}','reviewing')">Reviewing</button>
+               <button class="btn sm primary" onclick="sgTriage('${s.id}','actioned')">Mark actioned</button>
+               <button class="btn sm" onclick="sgTriage('${s.id}','referred')">Referred on</button>`
+            : `<span class="chip ${s.status==='closed'?'':'good'}">${cap(s.status)}</span>`}
+        </div>
+      </div>
+    </div></div>`;
+  return head('Safeguarding','Welfare concerns','Every concern a companion raises lands here. Triage each one — nothing is lost in a note.')+
+    `<div class="panel"><div class="panel-h"><h3>Open · ${open.length}</h3></div>
+       <div class="panel-b" style="padding:16px 20px">${open.length?open.map(card).join(''):'<div class="empty">No open concerns. 🌿</div>'}</div></div>
+     <div class="panel"><div class="panel-h"><h3>Resolved · ${closed.length}</h3></div>
+       <div class="panel-b" style="padding:16px 20px">${closed.length?closed.map(card).join(''):'<div class="empty">Nothing resolved yet.</div>'}</div></div>`;
+}
+
+async function sgTriage(id,status){
+  const s=sgList().find(x=>x.id===id); if(!s) return;
+  let action=s.action_taken||'';
+  if(status==='actioned'||status==='referred'){
+    const label=status==='referred'?'Who did you refer this to, and any reference?':'What did you do? (kept for the record)';
+    const got=await cmpPrompt(label,{title:status==='referred'?'Referred on':'Mark actioned',okText:'Save'});
+    if(got===null) return;            // cancelled
+    action=got||action;
+  }
+  s.status=status; s.action_taken=action; s.actioned_at=new Date().toISOString();
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('safeguarding_concerns',id,{status,action_taken:action,actioned_at:s.actioned_at}); }
+    catch(e){ alert('Could not update: '+e.message); return; }
+  }
+  cmpToast('Concern updated','ok'); render();
 }
 
 function viewOverview(){
@@ -229,6 +310,7 @@ function viewOverview(){
       <td><span class="chip ${c.max_clients-used>0?'good':'bad'}">${c.max_clients-used} free</span></td></tr>`;
   }).join('');
   const out = head('Operations','Good morning, BRAVO','One catchment · Guildford & Woking. The engine tracks supply, families, bookings and visits in one place.')+
+  sgBanner()+
   actionPanel()+`
   <div class="kpis">
     <div class="kpi"><div class="n">${active}</div><div class="l">Active companions</div></div>
@@ -692,15 +774,15 @@ async function moveStage(id,status){
     if(c.dbs!=='cleared') issues.push(`DBS is "${c.dbs}", not cleared`);
     if(!c.references_ok) issues.push('references not yet confirmed');
     if(issues.length){
-      const ok=confirm(`⚠ Safeguarding check for ${c.full_name}\n\nThis person will visit vulnerable elderly people, but:\n• ${issues.join('\n• ')}\n\nMark them active anyway?`);
+      const ok=await cmpConfirm(`This person will visit vulnerable elderly people, but:\n\n• ${issues.join('\n• ')}\n\nMark them active anyway?`,{title:'⚠ Safeguarding check — '+c.full_name,danger:true,okText:'Mark active anyway',cancelText:'Go back'});
       if(!ok) return;
     }
   }
   if(status==='rejected'){
-    if(!confirm(`Mark ${c.full_name} as not suitable? They’ll move out of the active pipeline.`)) return;
+    if(!await cmpConfirm(`Mark ${c.full_name} as not suitable? They’ll move out of the active pipeline.`,{title:'Mark not suitable',danger:true,okText:'Mark not suitable'})) return;
   }
   if(status==='offboarded'){
-    if(!confirm(`Offboard ${c.full_name}? They’ll no longer be available for visits.`)) return;
+    if(!await cmpConfirm(`Offboard ${c.full_name}? They’ll no longer be available for visits.`,{title:'Offboard companion',danger:true,okText:'Offboard'})) return;
   }
   if(typeof api!=='undefined' && api.live){ try{ await supa.update('companions',id,{status}); }catch(e){ alert(e.message); return; } }
   c.status=status; render();
@@ -937,8 +1019,8 @@ async function loadTheme(){
   }
   applyTheme();
 }
-function resetTheme(){
-  if(!confirm('Reset all colours, fonts and logo to the Companio defaults?')) return;
+async function resetTheme(){
+  if(!await cmpConfirm('Reset all colours, fonts and logo to the Companio defaults?',{title:'Reset theme',okText:'Reset'})) return;
   THEME={}; LOGO_URL='';
   if(typeof api!=='undefined' && api.live){
     THEME_PROPS.forEach(p=>{try{supa.rpc('set_setting',{p_key:'theme.'+p.k,p_value:''});}catch(e){}});
@@ -968,7 +1050,7 @@ function viewTheme(){
   <div class="panel"><div class="panel-h"><h3>Fonts</h3></div><div class="panel-b">
     ${fontSel('serif','Headings font')}${fontSel('sans','Body font')}</div></div>
   <div class="panel"><div class="panel-h"><h3>Logo</h3></div><div class="panel-b" style="padding:16px 20px">
-    <p class="sub2" style="margin-top:0">Paste a logo image URL, or upload a file (it’s stored with your dashboard). Replaces the ∞ mark.</p>
+    <p class="sub2" style="margin-top:0">Paste a logo image URL, or upload a file (it’s stored with your dashboard). Replaces the default Companio mark.</p>
     <input id="logoUrl" placeholder="https://… or upload below" value="${LOGO_URL&&!LOGO_URL.startsWith('data:')?LOGO_URL:''}" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;margin-bottom:8px">
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn primary" onclick="setLogo($('#logoUrl').value.trim());render()">Use this URL</button>
@@ -1110,7 +1192,7 @@ async function savePay(id, val){
 async function createLogin(role, id){
   const arr = role==='companion'?DB.companions:DB.requesters;
   const person=(arr||[]).find(x=>x.id===id); if(!person) return;
-  if(!confirm(`Send ${person.full_name} an email invite to set their password and access their portal?`)) return;
+  if(!await cmpConfirm(`Send ${person.full_name} an email invite to set their password and access their portal?`,{title:'Send login invite',okText:'Send invite'})) return;
   if(typeof api!=='undefined' && api.live){
     const res=await provisionLogin(role,id);
     if(res.error){ alert('Could not create login: '+res.error); return; }
@@ -1176,10 +1258,36 @@ function openUser(id){
     <p style="margin-top:12px">${u.notes||''}</p>
     ${u.mobility_notes?`<p class="muted" style="font-size:.88rem">Mobility: ${u.mobility_notes}</p>`:''}
     <div class="tags" style="margin-top:10px">${(u.interests||[]).map(i=>`<span class="tag">${i}</span>`).join('')}</div>
+    ${sgUserBlock(u)}
+    ${successPlanBlock(u)}
     <div class="section-t">Suggested companions</div>
     <div id="matchList"><div class="empty">Finding matches…</div></div>
   </div>`);
   fillMatchList(id);
+}
+// Success Plan — "know the person, not the booking"
+function successPlanBlock(u){
+  const row=(k,v)=>v?`<div class="field-row"><span class="k">${k}</span><span class="v">${v}</span></div>`:'';
+  const age=u.birthday?` (${Math.floor((Date.now()-new Date(u.birthday))/3.15576e10)})`:'';
+  const any=u.fav_music||u.routines||u.dietary||u.birthday||u.important_dates||u.family_details||u.conversation_starters;
+  if(!any) return `<div class="section-t">Success plan</div><p class="muted" style="font-size:.86rem">No success-plan details yet — add favourite music, routines, key dates and family so visits feel personal.</p>`;
+  return `<div class="section-t">Success plan</div>
+    ${row('Favourite music',u.fav_music)}
+    ${row('Routines',u.routines)}
+    ${row('Dietary',u.dietary)}
+    ${row('Birthday',u.birthday?fmt(u.birthday)+age:'')}
+    ${row('Important dates',u.important_dates)}
+    ${row('Family',u.family_details)}
+    ${row('Conversation starters',u.conversation_starters)}`;
+}
+// Any safeguarding history for this client, shown in their drawer
+function sgUserBlock(u){
+  const items=sgList().filter(s=>s.service_user_id===u.id)
+    .sort((a,b)=>new Date(b.raised_at)-new Date(a.raised_at));
+  if(!items.length) return '';
+  return `<div class="section-t">Safeguarding history</div>`+items.map(s=>
+    `<div class="field-row"><span class="k">${fmt(s.raised_at)}</span><span class="v">${sevChip(s.severity)} ${SG_CATS[s.category]||s.category} · <span class="chip ${['open','reviewing'].includes(s.status)?'warn':'good'}">${cap(s.status)}</span></span></div>`
+  ).join('');
 }
 async function fillMatchList(userId){
   let ms=null;
@@ -1219,7 +1327,7 @@ async function aiExplainMatches(userId){
 async function introduce(userId,compId,name){
   const u=DB.service_users.find(x=>x.id===userId);
   const c=DB.companions.find(x=>x.id===compId);
-  if(!confirm(`Introduce ${name.split(' ')[0]} to ${u?u.full_name:'this family'}?\n\nThis records the match and creates a draft booking you can confirm once the family agrees.`)) return;
+  if(!await cmpConfirm(`Introduce ${name.split(' ')[0]} to ${u?u.full_name:'this family'}?\n\nThis records the match and creates a draft booking you can confirm once the family agrees.`,{title:'Introduce companion',okText:'Introduce'})) return;
   if(typeof api!=='undefined' && api.live){
     try{
       await api.introduceMatch(DB,userId,compId);
@@ -1255,7 +1363,7 @@ function showLogin(errMsg){
   <div style="min-height:100vh;display:grid;place-items:center;background:var(--aubergine-dark)">
     <form id="loginForm" style="background:var(--offwhite);border-radius:16px;padding:36px 34px;width:min(380px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.3)">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-        <span style="width:34px;height:34px;border-radius:50%;background:var(--wheat);display:grid;place-items:center;color:var(--aubergine-dark);font-weight:800">∞</span>
+        <span class="cmp-logo" style="width:36px;height:36px"></span>
         <b style="font-family:var(--serif);font-size:1.4rem;color:var(--aubergine-dark)">Companio</b>
       </div>
       <p style="color:var(--muted);margin:0 0 22px;font-size:.9rem">Operations · sign in to continue</p>

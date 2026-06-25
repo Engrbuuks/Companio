@@ -84,10 +84,10 @@ const auth = {
   },
   // send a password-reset email. The link lands on set-password.html.
   async resetPassword(email) {
-    const redirectTo = location.origin + '/set-password.html';
-    const r = await fetch(`${SB.url}/auth/v1/recover`, {
+    const redirectTo = encodeURIComponent(location.origin + '/set-password.html');
+    const r = await fetch(`${SB.url}/auth/v1/recover?redirect_to=${redirectTo}`, {
       method: 'POST', headers: { 'apikey': SB.key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, options: { redirectTo } }),
+      body: JSON.stringify({ email }),
     });
     if (!r.ok) {
       const data = await r.json().catch(() => ({}));

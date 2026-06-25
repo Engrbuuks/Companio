@@ -10,7 +10,7 @@ const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'
 const cap=s=>s?s[0].toUpperCase()+s.slice(1).replace(/_/g,' '):'';
 const money=n=>'£'+Number(n||0).toFixed(2);
 
-let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[];
+let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS=[];
 
 /* ---------- DEMO DATA ---------- */
 const DEMO={
@@ -23,6 +23,7 @@ const DEMO={
   ],
   notes:[{id:'n1',visit_id:'v1',summary:'Joan was in great spirits — crossword and two cups of tea, and she told me all about teaching in Lagos. She walked me to the door, which she was pleased about.',created_at:'2026-06-24',companion_name:'Linda Hartley',user_name:'Joan Mensah'}],
   invoices:[{id:'i1',number:'CMP-2026-0001',status:'sent',period_start:'2026-06-01',period_end:'2026-06-30',total:128,amount_paid:0,due_date:'2026-07-14'}],
+  companions:[{service_user_id:'u1',service_user_name:'Joan Mensah',companion_id:'c1',companion_name:'Linda Hartley',companion_bio:'A natural conversationalist who never runs out of stories — Linda loves cards, a good cup of tea, and hearing about the old days.',companion_photo:'',shared_interests:['cards','music','tea','history'],since:'2026-06-24'}],
 };
 
 async function boot(){
@@ -31,7 +32,7 @@ async function boot(){
     try{ const me=await loadMe(); if(!me) return showLogin('This login isn’t linked to a family account.'); }
     catch(e){ return showLogin(); }
   } else {
-    ME=DEMO.me; USERS=DEMO.users; BOOKINGS=DEMO.bookings; VISITS=DEMO.visits; NOTES=DEMO.notes; INVOICES=DEMO.invoices;
+    ME=DEMO.me; USERS=DEMO.users; BOOKINGS=DEMO.bookings; VISITS=DEMO.visits; NOTES=DEMO.notes; INVOICES=DEMO.invoices; COMPANIONS=DEMO.companions;
   }
   renderApp();
 }
@@ -52,13 +53,15 @@ async function loadMe(){
   VISITS=(visits||[]).map(v=>({...v,user_name:v.bookings?.service_users?.full_name||'',companion_name:v.bookings?.companions?.full_name||''}));
   NOTES=(notes||[]).map(n=>({...n,user_name:n.visits?.bookings?.service_users?.full_name||'',companion_name:n.visits?.bookings?.companions?.full_name||''}));
   INVOICES=invoices||[];
+  // "Who is looking after my loved one?" — operator-decided, family informed
+  try{ COMPANIONS = await supa.rpc('my_companion',{}) || []; }catch(e){ COMPANIONS=[]; }
   return ME;
 }
 
 function showLogin(err){
   $('#root').innerHTML=`<div class="login-bg"><form class="login-card" id="lf">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-      <span style="width:32px;height:32px;border-radius:50%;background:var(--wheat);display:grid;place-items:center;color:var(--aubergine-dark);font-weight:800">∞</span>
+      <span class="cmp-logo" style="width:40px;height:40px"></span>
       <b style="font-family:var(--serif);font-size:1.3rem;color:var(--aubergine-dark)">Companio</b></div>
     <p class="muted" style="margin:0 0 14px">Family portal · sign in</p>
     ${err?`<div class="err">${err}</div>`:''}
@@ -86,7 +89,7 @@ let tab='loved';
 function renderApp(){
   const live=(typeof IS_LIVE!=='undefined' && IS_LIVE);
   $('#root').innerHTML=`
-  <div class="topbar"><div class="brand"><span class="mark">∞</span><b>Companio</b></div>
+  <div class="topbar"><div class="brand"><span class="cmp-logo"></span><b>Companio</b></div>
     <div class="who">${ME.full_name}${live?` · <a href="#" onclick="auth.logout();return false">sign out</a>`:' · demo'}</div></div>
   <div class="wrap">
     <div class="hello"><h1>Hello, ${ME.full_name.split(' ')[0]}</h1><p class="muted">How your loved one is doing, and everything in one place.</p></div>
@@ -110,7 +113,19 @@ function viewLoved(){
   if(!USERS.length) return `<div class="panel"><div class="empty">Once your introduction call is done, your loved one and their companion appear here.</div></div>`;
   return USERS.map(u=>{
     const bks=BOOKINGS.filter(b=>b.service_user_id===u.id);
+    const comp=(COMPANIONS||[]).find(c=>c.service_user_id===u.id);
+    const compCard = comp ? `<div class="row" style="background:var(--mist,#faf7f2);border-radius:12px;padding:14px;margin:4px 10px 10px">
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="width:54px;height:54px;border-radius:50%;flex:0 0 auto;background:${comp.companion_photo?`url('${comp.companion_photo}') center/cover`:'var(--wheat,#E7B86A)'};display:grid;place-items:center;font-weight:800;color:#322E3D;font-family:var(--serif,serif);font-size:1.1rem">${comp.companion_photo?'':(comp.companion_name||'?').split(' ').map(x=>x[0]).slice(0,2).join('')}</div>
+          <div style="flex:1">
+            <div class="muted" style="font-size:.78rem;text-transform:uppercase;letter-spacing:.04em">Your companion</div>
+            <div class="name" style="font-size:1.05rem">${comp.companion_name}</div>
+            ${comp.companion_bio?`<div class="muted" style="font-size:.88rem;margin-top:3px">${comp.companion_bio}</div>`:''}
+            ${(comp.shared_interests&&comp.shared_interests.length)?`<div style="margin-top:7px;font-size:.82rem">In common with ${u.full_name.split(' ')[0]}: ${comp.shared_interests.map(i=>`<span class="chip">${i}</span>`).join(' ')}</div>`:''}
+          </div>
+        </div></div>` : '';
     return `<div class="panel"><div class="panel-h"><h3>${u.full_name}</h3><span class="muted">${u.city||''}</span></div>
+      ${compCard}
       <div style="padding:6px 0">${bks.length?bks.map(b=>`<div class="row">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div><div class="name">${cap(b.service)} · ${cap(b.frequency)}</div>

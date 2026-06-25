@@ -54,7 +54,7 @@ async function loadMe(){
     supa.select('visit_notes', `select=*&companion_id=eq.${ME.id}&order=created_at.desc`).catch(()=>[]),
     supa.select('visit_pay', `select=*&companion_id=eq.${ME.id}`).catch(()=>[]),
   ]);
-  VISITS = (visits||[]).map(v=>({...v, user_name: v.bookings?.service_users?.full_name || 'Service user'}));
+  VISITS = (visits||[]).map(v=>({...v, user_name: v.bookings?.service_users?.full_name || 'Service user', service_user_id: v.bookings?.service_user_id || null }));
   AVAIL = avail||[]; NOTES = notes||[]; PAY = pay||[];
   try{ const f=await supa.select('app_settings',`select=value&key=eq.feature.ai`); DB_FEATURES.ai = (f&&f[0]&&f[0].value)||'off'; }catch(e){ DB_FEATURES.ai='off'; }
   return ME;
@@ -64,7 +64,7 @@ async function loadMe(){
 function showLogin(err){
   $('#root').innerHTML=`<div class="login-bg"><form class="login-card" id="lf">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-      <span style="width:32px;height:32px;border-radius:50%;background:var(--wheat);display:grid;place-items:center;color:var(--aubergine-dark);font-weight:800">∞</span>
+      <span class="cmp-logo" style="width:40px;height:40px"></span>
       <b style="font-family:var(--serif);font-size:1.3rem;color:var(--aubergine-dark)">Companio</b></div>
     <p class="muted" style="margin:0 0 14px">Companion portal · sign in</p>
     ${err?`<div class="err">${err}</div>`:''}
@@ -95,7 +95,7 @@ let tab='visits';
 function renderApp(){
   const live = (typeof IS_LIVE!=='undefined' && IS_LIVE);
   $('#root').innerHTML=`
-  <div class="topbar"><div class="brand"><span class="mark">∞</span><b>Companio</b></div>
+  <div class="topbar"><div class="brand"><span class="cmp-logo"></span><b>Companio</b></div>
     <div class="who">${ME.full_name}${live?` · <a href="#" onclick="auth.logout();return false">sign out</a>`:' · demo'}</div></div>
   <div class="wrap">
     <div class="hello"><h1>Hello, ${ME.full_name.split(' ')[0]}</h1><p class="muted">Your visits, notes to families, and availability.</p></div>
@@ -162,7 +162,8 @@ function viewVisits(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
         <div><div class="when">${fmt(v.scheduled_at)} · ${fmtTime(v.scheduled_at)}</div>
           <div class="who">${v.user_name} · ${v.length_hrs}h</div>
-          ${checkedIn&&checkedOut?`<div class="sub2" style="font-size:.78rem;margin-top:4px">In ${fmtTime(v.checked_in_at)} · out ${fmtTime(v.checked_out_at)}</div>`:''}</div>
+          ${checkedIn&&checkedOut?`<div class="sub2" style="font-size:.78rem;margin-top:4px">In ${fmtTime(v.checked_in_at)} · out ${fmtTime(v.checked_out_at)}</div>`:''}
+          <div style="margin-top:8px"><button class="btn sm" style="font-size:.78rem;padding:5px 10px" onclick="raiseConcern('${v.id}','${(v.user_name||'').replace(/'/g,'')}','${v.service_user_id||''}')">⚑ Raise a concern</button></div></div>
         <div style="text-align:right">${action}</div>
       </div></div>`;
   };
@@ -232,13 +233,51 @@ async function checkIn(visitId){
 }
 async function checkOut(visitId){
   const v=VISITS.find(x=>x.id===visitId); if(!v) return;
-  if(!confirm('Mark this visit as finished? The family will see it’s complete, and you can write them a note next.')) return;
+  if(!await cmpConfirm('Mark this visit as finished? The family will see it’s complete, and you can write them a note next.',{title:'Finish visit',okText:'Mark finished'})) return;
   if(typeof IS_LIVE!=='undefined' && IS_LIVE){
     try{ await supa.rpc('check_out_visit',{p_visit:visitId}); }catch(e){ alert('Could not finish: '+e.message); return; }
   }
   v.checked_out_at=new Date().toISOString();
   v.status='completed';
   renderTab();
+}
+
+// Companion raises a welfare concern about a client — lands in the operator's
+// Safeguarding queue. Two gentle steps: pick a category, then describe it.
+const SG_CHOICES=[
+  ['wellbeing','Seemed low / not themselves'],
+  ['self_neglect','Not eating / home decline'],
+  ['cognitive','Confused / forgetful'],
+  ['physical','A fall / unwell / injury'],
+  ['financial','Money worries / pressure'],
+  ['environment','Unsafe home'],
+  ['abuse','Something felt wrong'],
+  ['other','Something else'],
+];
+async function raiseConcern(visitId, userName, serviceUserId){
+  // step 1 — category via a simple chooser modal
+  const pickHtml = SG_CHOICES.map(([k,label])=>
+    `<button class="cmp-btn cmp-btn-ghost" style="display:block;width:100%;text-align:left;margin:4px 0" onclick="window.__sgPick('${k}')">${label}</button>`
+  ).join('');
+  const category = await new Promise(res=>{
+    window.__sgPick=(k)=>{ document.getElementById('cmpModalOverlay').classList.remove('on'); res(k); };
+    cmpModal({title:`Raise a concern · ${userName}`, mode:'alert', message:'What did you notice? Pick the closest. Companio will see this straight away.'});
+    // inject the choices into the modal body
+    setTimeout(()=>{ const b=document.getElementById('cmpModalBody'); if(b) b.innerHTML+='<div style="margin-top:10px">'+pickHtml+'</div>';
+      const f=document.getElementById('cmpModalFoot'); if(f) f.innerHTML=''; },20);
+  });
+  if(!category) return;
+  // step 2 — description
+  const desc = await cmpPrompt('Tell Companio what you saw, in your own words.',{title:'Describe the concern',okText:'Send to Companio',placeholder:'e.g. She seemed confused about the day and hadn’t eaten lunch.'});
+  if(desc===null || !desc.trim()){ return; }
+  // step 3 — urgency
+  const urgent = await cmpConfirm('Does this need attention today?',{title:'How urgent?',okText:'Yes — today',cancelText:'No — routine'});
+  const severity = urgent?3:2;
+  if(typeof IS_LIVE!=='undefined' && IS_LIVE){
+    try{ await supa.rpc('raise_concern',{p_service_user:serviceUserId||null,p_category:category,p_severity:severity,p_description:desc.trim(),p_visit:visitId||null}); }
+    catch(e){ alert('Could not send: '+e.message); return; }
+  }
+  cmpToast('Thank you — Companio has been alerted','ok');
 }
 
 async function saveNote(visitId){
