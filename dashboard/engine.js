@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v6 (role-routing)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v6';
+console.log('%cCompanio operator dashboard — BUILD v7 (invoice+signout)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v7';
 
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
@@ -539,9 +539,20 @@ function viewFinance(){
     </div></div>
   <div class="panel"><div class="panel-h"><h3>Companion earnings & payouts</h3></div>
     <div class="panel-b"><table><thead><tr><th>Companion</th><th>Pending</th><th>Paid</th><th>Lifetime</th><th>Payout</th></tr></thead><tbody>${earnRows}</tbody></table></div></div>
-  <div class="panel"><div class="panel-h"><h3>Invoices to families</h3></div>
-    <div class="panel-b"><table><thead><tr><th>Invoice</th><th>Total</th><th>Paid</th><th>Status</th></tr></thead><tbody>
-    ${DB.invoices.map(i=>`<tr><td class="name">${i.number||'—'}</td><td>${money(i.total)}</td><td>${money(i.amount_paid)}</td><td><span class="chip ${i.status==='paid'?'good':i.status==='void'?'':'warn'}">${cap(i.status)}</span></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty">No invoices yet.</div></td></tr>'}
+  <div class="panel"><div class="panel-h"><h3>Invoices to families</h3><button class="btn sm primary" onclick="createInvoice()">+ Create invoice</button></div>
+    <div class="panel-b"><table><thead><tr><th>Invoice</th><th>Family</th><th>Total</th><th>Paid</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+    ${DB.invoices.map(i=>{
+      const r=DB.requesters.find(x=>x.id===i.requester_id);
+      const fam=r?r.full_name:'—';
+      const acts=i.status==='void'?'' :
+        i.status==='paid'?'<span class="chip good">settled</span>' :
+        `${i.status==='draft'?`<button class="btn sm" onclick="invoiceAction('${i.id}','sent')">Mark sent</button> `:''}`+
+        `<button class="btn sm primary" onclick="invoiceAction('${i.id}','paid')">Mark paid</button> `+
+        `<button class="btn sm" onclick="invoiceAction('${i.id}','void')">Void</button>`;
+      return `<tr><td class="name">${i.number||'—'}</td><td>${fam}</td><td>${money(i.total)}</td><td>${money(i.amount_paid)}</td>
+        <td><span class="chip ${i.status==='paid'?'good':i.status==='void'?'':'warn'}">${cap(i.status)}</span></td>
+        <td>${acts}</td></tr>`;
+    }).join('')||'<tr><td colspan="6"><div class="empty">No invoices yet. Click “Create invoice” to bill a family for their completed visits.</div></td></tr>'}
     </tbody></table></div></div>`;
   queueChart(()=>{const el=document.getElementById('moneyChart');if(!el)return;
     return new Chart(el,{type:'bar',data:{
@@ -565,7 +576,62 @@ async function runPayout(name){
   render();
 }
 
-/* ---------- ACTION ITEMS (what needs attention) ---------- */
+/* ---------- INVOICING ---------- */
+// Create an invoice for a family from their completed, un-invoiced visits.
+async function createInvoice(){
+  // pick a family
+  const families = DB.requesters.filter(r=>r.id);
+  if(!families.length){ cmpModal({title:'No families yet',mode:'alert',message:'Once you have a family with completed visits, you can bill them here.'}); return; }
+  const pick = await new Promise(res=>{
+    const opts = families.map(r=>`<button class="cmp-btn cmp-btn-ghost" style="display:block;width:100%;text-align:left;margin:4px 0" onclick="window.__invPick('${r.id}')">${r.full_name}</button>`).join('');
+    window.__invPick=(id)=>{ document.getElementById('cmpModalOverlay').classList.remove('on'); res(id); };
+    cmpModal({title:'Create an invoice',mode:'alert',message:'Which family is this invoice for? It will bill their completed, not-yet-invoiced visits.'});
+    setTimeout(()=>{ const b=document.getElementById('cmpModalBody'); if(b) b.innerHTML+='<div style="margin-top:10px">'+opts+'</div>'; const f=document.getElementById('cmpModalFoot'); if(f) f.innerHTML=''; },20);
+  });
+  if(!pick) return;
+
+  if(typeof api!=='undefined' && api.live){
+    try{
+      const newId = await supa.rpc('generate_invoice',{p_requester:pick, p_from:null, p_to:null});
+      await loadAll(DB);
+      render();
+      // confirm result
+      const created = DB.invoices.find(i=>i.id===newId);
+      cmpToast(created?`Invoice ${created.number} created`:'Invoice created','ok');
+    }catch(e){
+      // common case: nothing to bill
+      const msg = /no .*visit|nothing/i.test(e.message||'') ? 'There are no completed, un-invoiced visits for this family yet.' : ('Could not create invoice: '+e.message);
+      cmpModal({title:'Nothing to invoice',mode:'alert',message:msg});
+    }
+  } else {
+    // demo: synthesise an invoice from this family's completed visits
+    const r=DB.requesters.find(x=>x.id===pick);
+    const num='CMP-2026-'+String(1000+DB.invoices.length+1).slice(1);
+    const total=64; // demo amount
+    DB.invoices.push({id:'inv'+Date.now(),requester_id:pick,number:num,status:'draft',total,amount_paid:0,period_start:'2026-06-01',period_end:'2026-06-30',due_date:'2026-07-14'});
+    cmpToast(`Invoice ${num} created (demo)`,'ok');
+    render();
+  }
+}
+
+async function invoiceAction(id,action){
+  const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
+  if(action==='void'){
+    if(!await cmpConfirm(`Void invoice ${inv.number}? This cancels it.`,{title:'Void invoice',danger:true,okText:'Void it'})) return;
+  }
+  const patch = action==='paid' ? {status:'paid',amount_paid:inv.total}
+              : action==='sent' ? {status:'sent'}
+              : {status:'void'};
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('invoices',id,patch); await loadAll(DB); }
+    catch(e){ alert('Update failed: '+e.message); return; }
+  } else {
+    Object.assign(inv,patch);
+  }
+  cmpToast(`Invoice ${action==='paid'?'marked paid':action==='sent'?'marked sent':'voided'}`,'ok');
+  render();
+}
+
 function computeActions(){
   const items=[];
   // MISSED CHECK-IN: scheduled visit, start time passed by >20 min, no check-in
@@ -1451,7 +1517,8 @@ async function boot(){
       $('#view').innerHTML = '<div class="empty">Could not load data: '+e.message+'</div>'; return;
     }
     // reflect mode + who's signed in
-    const m=$('#modeNote'); if(m) m.innerHTML = 'Mode: <b>Live</b><br><span class="muted" style="color:rgba(244,240,234,.5)">'+staff.full_name+' · <a href="#" onclick="auth.logout();return false" style="color:var(--wheat)">sign out</a></span>';
+    const m=$('#modeNote'); if(m) m.innerHTML = 'Mode: <b>Live</b><br><span class="muted" style="color:rgba(244,240,234,.5)">'+staff.full_name+'</span>';
+    const so=$('#topSignout'); if(so) so.style.display='block';
   }
   renderNav(); render();
 }

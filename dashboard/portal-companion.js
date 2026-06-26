@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v6 (role-routing)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v6';
+console.log('%cCompanio companion portal — BUILD v7 (invoice+signout)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v7';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -162,7 +162,7 @@ function renderApp(){
   const live = (typeof IS_LIVE!=='undefined' && IS_LIVE);
   $('#root').innerHTML=`
   <div class="topbar"><div class="brand"><span class="cmp-logo"></span><b>Companio</b></div>
-    <div class="who">${ME.full_name}${live?` · <a href="#" onclick="auth.logout();return false">sign out</a>`:' · demo'}</div></div>
+    <div class="who">${ME.full_name}${live?` <button class="signout-btn" onclick="auth.logout();return false">Sign out</button>`:' · demo'}</div></div>
   <div class="wrap">
     <div class="hello"><h1>Hello, ${ME.full_name.split(' ')[0]}</h1><p class="muted">Welcome back. Here’s everything you need for your visits.</p></div>
     <div class="tabs">

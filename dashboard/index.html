@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+.signout-btn{background:var(--wheat,#E7B86A);color:var(--aubergine-dark,#322E3D);border:0;border-radius:9px;padding:8px 16px;font-weight:800;font-size:.85rem;cursor:pointer;font-family:inherit;transition:background .15s}.signout-btn:hover{background:var(--wheat-deep,#C8943B)}#topSignout{position:fixed;top:18px;right:22px;z-index:50;box-shadow:0 4px 14px rgba(50,46,61,.18)}
 :root{
   --aubergine:#4A4458; --aubergine-dark:#322E3D; --wheat:#E7B86A; --wheat-deep:#C8943B;
   --lilac:#9B8AA8; --offwhite:#F4F0EA; --ink:#241F2B; --line:#E2DBD0; --card:#FFFFFF;
@@ -266,13 +267,14 @@ body.editing .head::after{content:"✏️ Editing — click any highlighted text
     <div class="mode" id="modeNote">Mode: <b>Demo</b><br><span class="muted" style="color:rgba(244,240,234,.5)">Seed data · read-only preview</span></div>
   </aside>
   <main class="main" id="view"></main>
+  <button id="topSignout" class="signout-btn" style="display:none" onclick="auth.logout();return false">Sign out</button>
 </div>
 
 <div class="drawer-bg" id="drawerBg" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"><div id="drawerContent"></div></aside>
 
-<script src="config.js?v=6"></script>
-<script src="supabase.js?v=6"></script>
-<script src="engine.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="supabase.js?v=7"></script>
+<script src="engine.js?v=7"></script>
 </body>
 </html>
