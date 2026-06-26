@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v10 (launch-clean)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v10';
+console.log('%cCompanio operator dashboard — BUILD v13 (stripe)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v13';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -25,7 +25,7 @@ const DB = {
   visit_pay: [],
   payouts: [],
   features: {stripe:'off', reminders:'off', documents:'on', reporting:'on', ai:'off'},
-  rates: {rate_companionship:'28', rate_help:'30', rate_both:'32'},
+  rates: {rate_companionship:'30', rate_help:'32', rate_both:'34'},
   plans: [
     {id:'p1',label:'Weekly',tier:'starter',visits_per_week:1,monthly_price:0,active:true,sort_order:1},
     {id:'p2',label:'Twice-Weekly',tier:'standard',visits_per_week:2,monthly_price:0,active:true,sort_order:2},
@@ -33,6 +33,8 @@ const DB = {
   ],
   documents: [],
   invoices: [],
+  memberships: [],
+  membership_plans: [],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -378,7 +380,7 @@ function viewRequesters(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div><div class="name" style="font-size:1.05rem">${r.full_name} <span class="chip ${statusChip(r.status)}">${cap(r.status)}</span></div>
         <div class="sub2">${r.email} · ${r.phone} · via ${r.source}</div></div>
-        <div style="text-align:right">${requesterLoginBtn(r)}</div>
+        <div style="text-align:right">${requesterLoginBtn(r)}<div style="margin-top:6px">${membershipBtn(r)}</div></div>
       </div>
       ${r.matcher_notes?`<div class="sub2" style="margin-top:8px;background:var(--mist);border:1px solid var(--line);border-radius:9px;padding:9px 12px"><b>Matcher:</b> ${r.matcher_notes}</div>`:''}
       <div class="section-t">Service users (${users.length})</div>
@@ -394,12 +396,68 @@ function requesterLoginBtn(r){
   return `<button class="btn sm primary" onclick="createLogin('requester','${r.id}')">✉️ Send login invite</button>`;
 }
 
+// Membership status + setup. DB.memberships is loaded in live mode.
+function membershipBtn(r){
+  const m=(DB.memberships||[]).find(x=>x.requester_id===r.id && x.status!=='canceled');
+  if(m && (m.status==='active'||m.status==='trialing')){
+    return `<span class="chip good" title="${m.plan_key||''} · £${Number(m.monthly_price||0).toFixed(0)}/mo">✓ Member · ${cap(m.plan_key||'plan')}</span>`;
+  }
+  if(m && m.status==='past_due'){
+    return `<span class="chip bad">Payment failed</span> <button class="btn sm" onclick="setupMembership('${r.id}')">Resend</button>`;
+  }
+  if(m && m.status==='incomplete'){
+    return `<span class="chip warn">Awaiting payment</span> <button class="btn sm" onclick="setupMembership('${r.id}')">Resend link</button>`;
+  }
+  return `<button class="btn sm" onclick="setupMembership('${r.id}')">💳 Set up membership</button>`;
+}
+
+async function setupMembership(reqId){
+  const r=DB.requesters.find(x=>x.id===reqId); if(!r) return;
+  const plans=(DB.membership_plans&&DB.membership_plans.length)?DB.membership_plans
+    :[{key:'weekly',name:'Weekly',monthly_price:260},{key:'companion',name:'Companion',monthly_price:570},{key:'concierge',name:'Concierge',monthly_price:1110}];
+  // choose a plan
+  const pick=await new Promise(res=>{
+    const opts=plans.map(p=>`<button class="cmp-btn cmp-btn-ghost" style="display:block;width:100%;text-align:left;margin:4px 0" onclick="window.__planPick('${p.key}')">${p.name} — £${Number(p.monthly_price).toFixed(0)}/mo</button>`).join('');
+    window.__planPick=(k)=>{ const ov=document.getElementById('cmpModalOverlay'); if(ov) ov.classList.remove('on'); res(k); };
+    cmpModal({title:`Membership for ${r.full_name}`,mode:'alert',message:'Choose a plan. We’ll create a secure Stripe checkout link for the family to enter their card — billed monthly until cancelled.'});
+    setTimeout(()=>{ const b=document.getElementById('cmpModalBody'); if(b) b.innerHTML+='<div style="margin-top:10px">'+opts+'</div>'; const f=document.getElementById('cmpModalFoot'); if(f) f.innerHTML=''; },20);
+  });
+  if(!pick) return;
+
+  if(typeof api!=='undefined' && api.live){
+    cmpToast('Creating secure checkout…','');
+    const out=await createMembershipCheckout(reqId, pick, null);
+    if(out.error){ cmpModal({title:'Could not set up membership',mode:'alert',message:out.error}); return; }
+    // show the link to copy / send
+    openDrawer(`
+      <div class="drawer-h"><div><h2>Membership link ready</h2>
+        <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${r.full_name} · ${cap(pick)} plan</div></div>
+        <button class="x" onclick="closeDrawer()">×</button></div>
+      <div class="drawer-b">
+        <p class="muted" style="font-size:.9rem">Send this secure link to the family. They enter their card on Stripe; the membership activates automatically and shows here once paid.</p>
+        <input id="memlink" readonly value="${out.url}" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;font-size:.85rem">
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn primary" style="flex:1" onclick="navigator.clipboard.writeText(document.getElementById('memlink').value).then(()=>cmpToast('Link copied','ok'))">Copy link</button>
+          <a class="btn" href="mailto:${r.email||''}?subject=Your%20Companio%20membership&body=${encodeURIComponent('Here is your secure link to set up your Companio membership:\n\n'+out.url)}">Email it</a>
+        </div>
+      </div>`);
+  } else {
+    // demo: simulate the membership becoming active
+    DB.memberships=DB.memberships||[];
+    const ex=DB.memberships.find(x=>x.requester_id===reqId);
+    const price=(plans.find(p=>p.key===pick)||{}).monthly_price||0;
+    if(ex){ ex.status='active'; ex.plan_key=pick; ex.monthly_price=price; }
+    else DB.memberships.push({id:'m'+Date.now(),requester_id:reqId,plan_key:pick,status:'active',monthly_price:price});
+    cmpToast(`${cap(pick)} membership active (demo)`,'ok'); render();
+  }
+}
+
 function viewBookings(){
   const rows=DB.bookings.map(b=>{
     const u=DB.service_users.find(x=>x.id===b.service_user_id);
     const r=DB.requesters.find(x=>x.id===b.requester_id);
     const c=DB.companions.find(x=>x.id===b.companion_id);
-    return `<tr class="row" data-booking="${b.id}">
+    return `<tr class="row" data-booking="${b.id}" style="cursor:pointer" onclick="openBooking('${b.id}')">
       <td><div class="name">${u.full_name}</div><div class="sub2">for ${r.full_name}</div></td>
       <td><span class="dot ${b.service}"></span> ${cap(b.service)}</td>
       <td>${cap(b.frequency)}</td>
@@ -409,7 +467,76 @@ function viewBookings(){
     </tr>`;}).join('');
   return head('Arrangements','Bookings','An ongoing arrangement: which user, what service, how often, who pays, and which companion delivers it.')+`
   <div class="panel"><div class="panel-h"><h3>Bookings (${DB.bookings.length})</h3></div>
-  <div class="panel-b"><table><thead><tr><th>Service user</th><th>Service</th><th>Frequency</th><th>Companion</th><th>Rate</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  <div class="panel-b">${DB.bookings.length?`<table><thead><tr><th>Service user</th><th>Service</th><th>Frequency</th><th>Companion</th><th>Rate</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No bookings yet. Bookings are created when you introduce a companion to a family from the Requesters tab.</div>'}</div></div>`;
+}
+
+// Booking drawer: shows the full chain and lets you assign/reassign the
+// companion safely (capacity-aware), so there's never a mix-up.
+function openBooking(id){
+  const b=DB.bookings.find(x=>x.id===id); if(!b) return;
+  const u=DB.service_users.find(x=>x.id===b.service_user_id);
+  const r=DB.requesters.find(x=>x.id===b.requester_id);
+  const c=DB.companions.find(x=>x.id===b.companion_id);
+  // candidate companions: active, with capacity (current booking's companion always allowed)
+  const cands=DB.companions.filter(x=>x.status==='active').map(x=>{
+    const load=DB.bookings.filter(bk=>bk.companion_id===x.id&&bk.status==='active'&&bk.id!==id).length;
+    const free=(x.max_clients||8)-load;
+    return {x,load,free,full:free<=0};
+  });
+  const options=cands.map(o=>`<option value="${o.x.id}" ${o.x.id===b.companion_id?'selected':''} ${o.full&&o.x.id!==b.companion_id?'disabled':''}>${o.x.full_name}${o.full?' — at capacity':` (${o.free} free)`}</option>`).join('');
+  openDrawer(`
+    <div class="drawer-h"><div><h2>${u?u.full_name:'Booking'}</h2>
+      <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">for ${r?r.full_name:'family'} · ${cap(b.status)}</div></div>
+      <button class="x" onclick="closeDrawer()">×</button></div>
+    <div class="drawer-b">
+      <div class="section-t">The arrangement</div>
+      <div class="field-row"><span class="k">Service user</span><span class="v"><b>${u?u.full_name:'—'}</b></span></div>
+      <div class="field-row"><span class="k">Family (pays)</span><span class="v">${r?r.full_name:'—'}</span></div>
+      <div class="field-row"><span class="k">Service</span><span class="v">${cap(b.service)} · ${cap(b.frequency)} · ${b.visit_length_hrs}h</span></div>
+      <div class="field-row"><span class="k">Rate</span><span class="v">£${Number(b.hourly_rate||0).toFixed(0)}/hr</span></div>
+
+      <div class="section-t" style="margin-top:18px">Assigned companion</div>
+      <p class="muted" style="font-size:.85rem;margin:0 0 8px">${c?`Currently <b>${c.full_name}</b>.`:'No companion assigned yet.'} Changing this updates who delivers this family’s visits. Companions at capacity can’t be selected.</p>
+      <select id="bk-companion" style="width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;font-family:inherit">
+        <option value="">— Unassigned —</option>
+        ${options}
+      </select>
+      <button class="btn primary" style="width:100%;margin-top:12px" onclick="assignBookingCompanion('${id}')">Save companion</button>
+
+      <div class="section-t" style="margin-top:20px">Booking status</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${b.status!=='active'?`<button class="btn sm primary" onclick="setBookingStatus('${id}','active')">Activate</button>`:''}
+        ${b.status!=='paused'?`<button class="btn sm" onclick="setBookingStatus('${id}','paused')">Pause</button>`:''}
+        ${b.status!=='ended'?`<button class="btn sm" onclick="setBookingStatus('${id}','ended')">End</button>`:''}
+      </div>
+    </div>`);
+}
+
+async function assignBookingCompanion(id){
+  const b=DB.bookings.find(x=>x.id===id); if(!b) return;
+  const newId=document.getElementById('bk-companion').value||null;
+  if(newId===b.companion_id){ closeDrawer(); return; }
+  const c=DB.companions.find(x=>x.id===newId);
+  const u=DB.service_users.find(x=>x.id===b.service_user_id);
+  const verb=b.companion_id?'Reassign':'Assign';
+  if(!await cmpConfirm(`${verb} ${c?c.full_name:'(unassign)'} ${c?'to':'from'} ${u?u.full_name:'this booking'}? Future visits for this booking will use ${c?'the new companion':'no companion until reassigned'}.`,{title:verb+' companion',okText:verb})) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('bookings',id,{companion_id:newId}); await loadAll(DB); }
+    catch(e){ alert('Could not save: '+e.message); return; }
+  } else {
+    b.companion_id=newId;
+  }
+  closeDrawer(); cmpToast('Companion '+(newId?'assigned':'removed'),'ok'); render();
+}
+
+async function setBookingStatus(id,status){
+  const b=DB.bookings.find(x=>x.id===id); if(!b) return;
+  if(status==='ended' && !await cmpConfirm('End this booking? It stops future visits for this arrangement.',{title:'End booking',danger:true,okText:'End it'})) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('bookings',id,{status}); await loadAll(DB); }
+    catch(e){ alert('Could not update: '+e.message); return; }
+  } else { b.status=status; }
+  closeDrawer(); cmpToast('Booking '+status,'ok'); render();
 }
 
 function viewVisits(){

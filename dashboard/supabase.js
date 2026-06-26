@@ -127,6 +127,8 @@ async function loadAll(DB) {
   DB.invoices = await supa.select('invoices', 'select=*&order=created_at.desc').catch(() => []);
   DB.visit_pay = await supa.select('visit_pay', 'select=*').catch(() => []);
   DB.safeguarding_concerns = await supa.select('safeguarding_concerns', 'select=*&order=raised_at.desc').catch(() => []);
+  DB.memberships = await supa.select('memberships', 'select=*&order=created_at.desc').catch(() => []);
+  DB.membership_plans = await supa.select('membership_plans', 'select=*&active=eq.true&order=sort_order').catch(() => []);
   // pricing: plans + hourly rates (single source of truth for the website too)
   try {
     DB.plans = await supa.select('plans', 'select=*&order=sort_order').catch(() => DB.plans || []);
@@ -200,6 +202,28 @@ async function provisionLogin(role, id) {
     if (!r.ok) return { error: j.error || ('Function error ' + r.status) };
     return { ok: true, email: j.email };
   } catch (e) { return { error: 'Could not reach function: ' + (e.message || e) }; }
+}
+
+// Create a Stripe Checkout link for a family's monthly membership.
+// Staff-only on the server; returns { url } to send to the family.
+async function createMembershipCheckout(requesterId, planKey, priceId) {
+  if (!IS_LIVE) return { error: 'demo' };
+  let base = '';
+  try {
+    const rows = await supa.select('app_settings', `select=value&key=eq.ai_functions_url`);
+    base = rows && rows[0] ? rows[0].value : '';
+  } catch (e) { return { error: 'Could not read settings: ' + (e.message || e) }; }
+  if (!base) return { error: 'Functions URL not set in app_settings (ai_functions_url).' };
+  try {
+    const r = await fetch(`${base}/stripe-checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (SB.token || '') },
+      body: JSON.stringify({ requester_id: requesterId, plan_key: planKey, price_id: priceId }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: j.error || ('Function error ' + r.status) };
+    return { ok: true, url: j.url };
+  } catch (e) { return { error: 'Could not reach Stripe function: ' + (e.message || e) }; }
 }
 
 async function aiAssist(task, data) {
