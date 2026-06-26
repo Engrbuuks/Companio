@@ -4,6 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
+console.log('%cCompanio operator dashboard — BUILD v6 (role-routing)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v6';
 
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
@@ -1398,10 +1400,32 @@ function showLogin(errMsg){
     try{
       await auth.login($('#li_email').value.trim(), $('#li_pass').value);
       const staff = await auth.verifyStaff();
-      if(!staff){ auth.logout(); return; }
+      if(!staff){
+        // Not an operator — they're probably a companion or family who landed
+        // on the wrong page. Send them to the right portal instead of bouncing.
+        const dest = await portalForCurrentUser();
+        if(dest){ window.location.href = dest; return; }
+        auth.logout();
+        showLogin('That account isn’t a Companio operator. If you’re a companion or family member, use the link Companio sent you.');
+        return;
+      }
       location.reload();
     }catch(err){ showLogin(err.message||'Login failed'); }
   };
+}
+
+// Decide which portal a logged-in (non-staff) user belongs to, by looking up
+// their auth id in companions / requesters. Returns a URL or null.
+async function portalForCurrentUser(){
+  try{
+    const uid = SB.user && SB.user.id;
+    if(!uid) return null;
+    const comp = await supa.select('companions', `select=id&auth_user_id=eq.${uid}`).catch(()=>[]);
+    if(comp && comp[0]) return 'portal-companion.html';
+    const req = await supa.select('requesters', `select=id&auth_user_id=eq.${uid}`).catch(()=>[]);
+    if(req && req[0]) return 'portal-requester.html';
+  }catch(e){}
+  return null;
 }
 
 /* ---------- BOOT ---------- */
@@ -1412,7 +1436,12 @@ async function boot(){
     let staff;
     try { staff = await auth.verifyStaff(); }
     catch(e){ auth.logout(); return; }
-    if (!staff) { showLogin('That account is not a Companio operator.'); return; }
+    if (!staff) {
+      const dest = await portalForCurrentUser();
+      if(dest){ window.location.href = dest; return; }
+      showLogin('That account is not a Companio operator.');
+      return;
+    }
     try {
       $('#view').innerHTML = '<div class="empty">Loading your data…</div>';
       await loadAll(DB);
