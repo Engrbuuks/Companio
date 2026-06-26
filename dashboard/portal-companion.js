@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v4 (cache-fix)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v4';
+console.log('%cCompanio companion portal — BUILD v5 (trace)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v5';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -139,14 +139,20 @@ function showLogin(err){
   };
   $('#lf').onsubmit=async(ev)=>{ev.preventDefault();
     const b=$('#lf button');b.textContent='Signing in…';b.disabled=true;
+    const trace=[]; const T=(s)=>{trace.push(s);};
     let me;
     try{
+      T('login-start');
       await auth.login($('#e').value.trim(),$('#p').value);
+      T('auth-ok');
       me=await loadMe();
-    }catch(e){ return showLogin(e.message||'Login failed'); }
-    if(!me){ const msg=linkErrorMessage(); auth.logout(); return showLogin(msg); }
-    // login + profile OK — render outside the catch so a draw error can't bounce us
-    safeRender();
+      T('loadMe-done me='+(me?'yes':'null'));
+    }catch(e){ return showLogin('Sign-in error: '+(e.message||e)+'  [trace: '+trace.join(' → ')+']'); }
+    if(!me){ const msg=linkErrorMessage(); auth.logout(); return showLogin(msg+'  [trace: '+trace.join(' → ')+']'); }
+    T('rendering');
+    try{ renderApp(); }
+    catch(e){
+      document.getElementById('root').innerHTML='<div style="max-width:540px;margin:50px auto;padding:24px;font-family:system-ui"><h2>You’re signed in ✓</h2><p>But drawing the dashboard failed. Please send Companio this:</p><pre style="background:#f3eee6;padding:12px;border-radius:8px;white-space:pre-wrap">'+(e.message||e)+'\n\ntrace: '+trace.join(' → ')+'</pre></div>'; }
   };
 }
 
