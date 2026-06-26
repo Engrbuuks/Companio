@@ -46,14 +46,34 @@ const DEMO = {
 async function boot(){
   if(typeof IS_LIVE!=='undefined' && IS_LIVE){
     if(!auth.restore()){ return showLogin(); }
+    let me;
     try{
-      const me = await loadMe();
-      if(!me){ return showLogin(linkErrorMessage()); }
+      me = await loadMe();
     }catch(e){ return showLogin('Something went wrong loading your profile: '+(e.message||e)); }
+    if(!me){ return showLogin(linkErrorMessage()); }
+    // Render OUTSIDE the auth try/catch — a render error must not bounce a
+    // correctly-authenticated companion back to the login screen.
+    safeRender();
+    return;
   } else {
     ME=DEMO.me; VISITS=DEMO.visits; NOTES=DEMO.notes; AVAIL=DEMO.avail; PAY=DEMO.pay; USERS=DEMO.users; WELLBEING=DEMO.wellbeing; DB_FEATURES={ai:'on'};
   }
   renderApp();
+}
+
+// Render with a guard: if a view throws, show the error instead of a blank
+// bounce, so the companion stays logged in and we can see what failed.
+function safeRender(){
+  try{ renderApp(); }
+  catch(e){
+    console.error('Render error:', e);
+    const root=document.getElementById('root');
+    if(root){ root.innerHTML='<div style="max-width:520px;margin:60px auto;padding:24px;font-family:system-ui">'+
+      '<h2 style="color:#322E3D">You’re signed in ✓</h2>'+
+      '<p>We hit a snag drawing your dashboard, but your login is fine. Please tell Companio you saw this:</p>'+
+      '<pre style="background:#f3eee6;padding:12px;border-radius:8px;white-space:pre-wrap;font-size:.85rem">'+(e.message||e)+'</pre>'+
+      '<button onclick="location.reload()" style="background:#E7B86A;border:0;border-radius:10px;padding:11px 18px;font-weight:800;cursor:pointer">Try again</button></div>'; }
+  }
 }
 
 // When loadMe finds no companion row for this auth user, explain it usefully
@@ -116,11 +136,14 @@ function showLogin(err){
   };
   $('#lf').onsubmit=async(ev)=>{ev.preventDefault();
     const b=$('#lf button');b.textContent='Signing in…';b.disabled=true;
-    try{ await auth.login($('#e').value.trim(),$('#p').value);
-      const me=await loadMe();
-      if(!me){ const msg=linkErrorMessage(); auth.logout(); return showLogin(msg); }
-      renderApp();
-    }catch(e){ showLogin(e.message||'Login failed'); }
+    let me;
+    try{
+      await auth.login($('#e').value.trim(),$('#p').value);
+      me=await loadMe();
+    }catch(e){ return showLogin(e.message||'Login failed'); }
+    if(!me){ const msg=linkErrorMessage(); auth.logout(); return showLogin(msg); }
+    // login + profile OK — render outside the catch so a draw error can't bounce us
+    safeRender();
   };
 }
 
