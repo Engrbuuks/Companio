@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v8 (invoice-edit+layout)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v8';
+console.log('%cCompanio companion portal — BUILD v10 (launch-clean)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v10';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -20,28 +20,8 @@ let DB_FEATURES={ai:'off'};   // loaded from app_settings in live mode
 
 /* ---------- DEMO DATA ---------- */
 const DEMO = {
-  me:{id:'c1',full_name:'Linda Hartley',email:'linda@example.com',city:'Guildford',status:'active',offers:'both'},
-  visits:[
-    {id:'v2',scheduled_at:'2026-07-01T10:00',length_hrs:2,status:'scheduled',booking_id:'b1',user_name:'Joan Mensah'},
-    {id:'v1',scheduled_at:'2026-06-24T10:00',length_hrs:2,status:'completed',booking_id:'b1',user_name:'Joan Mensah',checked_in_at:'2026-06-24T10:02',checked_out_at:'2026-06-24T12:05'},
-  ],
-  notes:[{id:'n1',visit_id:'v1',summary:'Joan was in great spirits — crossword and two cups of tea. She told me about teaching in Lagos.',created_at:'2026-06-24',user_name:'Joan Mensah'}],
-  avail:[{id:'a1',day:'mon',start_time:'10:00',end_time:'14:00'},{id:'a2',day:'wed',start_time:'10:00',end_time:'13:00'}],
-  pay:[{id:'vp1',visit_id:'v1',hours:2,rate:14,amount:28,status:'accrued'}],
-  users:{ u1:{ id:'u1', full_name:'Joan Mensah', city:'Guildford', postcode:'GU1 3AB', temperament:'chatty',
-    interests:['cards','music','tea','history'],
-    notes:'Loves a long chat and a milky tea. Hard of hearing on the left.',
-    mobility_notes:'Walks with a stick; short strolls fine.',
-    fav_music:'Vera Lynn, wartime classics and a bit of jazz',
-    routines:'Tea at 4pm sharp; likes the radio on in the mornings.',
-    dietary:'No added salt; soft foods easier since her dentures.',
-    family_details:'Son Daniel visits Sundays. Daughter in Canada calls Weds.',
-    conversation_starters:'Ask about her years teaching infants in Leeds.' } },
-  wellbeing:[
-    {id:'w1',service_user_id:'u1',score:4,band:'strong',created_at:'2026-05-01'},
-    {id:'w2',service_user_id:'u1',score:3,band:'moderate',created_at:'2026-05-22'},
-    {id:'w3',service_user_id:'u1',score:2,band:'moderate',created_at:'2026-06-15'},
-  ],
+  me:{id:'sample',full_name:'Sample Companion',email:'sample@example.com',city:'—',status:'active',offers:'both'},
+  visits:[], notes:[], avail:[], pay:[], users:{}, wellbeing:[],
 };
 
 /* ---------- BOOT ---------- */

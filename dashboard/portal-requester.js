@@ -14,16 +14,8 @@ let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS
 
 /* ---------- DEMO DATA ---------- */
 const DEMO={
-  me:{id:'r1',full_name:'Sarah Mensah',email:'sarah@example.com'},
-  users:[{id:'u1',full_name:'Joan Mensah',city:'Guildford',relationship:'adult_child'}],
-  bookings:[{id:'b1',service_user_id:'u1',companion_name:'Linda Hartley',service:'companionship',frequency:'weekly',hourly_rate:32,status:'active'}],
-  visits:[
-    {id:'v1',booking_id:'b1',scheduled_at:'2026-06-24T10:00',length_hrs:2,status:'completed',user_name:'Joan Mensah',companion_name:'Linda Hartley'},
-    {id:'v2',booking_id:'b1',scheduled_at:'2026-07-01T10:00',length_hrs:2,status:'scheduled',user_name:'Joan Mensah',companion_name:'Linda Hartley'},
-  ],
-  notes:[{id:'n1',visit_id:'v1',summary:'Joan was in great spirits — crossword and two cups of tea, and she told me all about teaching in Lagos. She walked me to the door, which she was pleased about.',created_at:'2026-06-24',companion_name:'Linda Hartley',user_name:'Joan Mensah'}],
-  invoices:[{id:'i1',number:'CMP-2026-0001',status:'sent',period_start:'2026-06-01',period_end:'2026-06-30',total:128,amount_paid:0,due_date:'2026-07-14'}],
-  companions:[{service_user_id:'u1',service_user_name:'Joan Mensah',companion_id:'c1',companion_name:'Linda Hartley',companion_bio:'A natural conversationalist who never runs out of stories — Linda loves cards, a good cup of tea, and hearing about the old days.',companion_photo:'',shared_interests:['cards','music','tea','history'],since:'2026-06-24'}],
+  me:{id:'sample',full_name:'Sample Family',email:'sample@example.com'},
+  users:[], bookings:[], visits:[], notes:[], invoices:[], companions:[],
 };
 
 async function boot(){

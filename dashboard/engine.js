@@ -4,43 +4,25 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v8 (invoice-edit+layout)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v8';
+console.log('%cCompanio operator dashboard — BUILD v10 (launch-clean)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v10';
 
-/* ---------- DEMO DATA (mirror of seed) ---------- */
+/* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
+   These arrays are intentionally empty so a logged-out preview and any
+   not-yet-live view show clean "nothing here yet" states instead of demo
+   people. In live mode, loadAll() replaces them with real data from the DB.
+   The config blocks below (features / rates / plans) are sensible defaults
+   so the UI renders without errors before live data loads. */
 const DB = {
-  companions: [
-    {id:'c1',full_name:'Linda Hartley',email:'linda@example.com',source:'website',city:'Guildford',postcode:'GU1 3AA',status:'active',dbs:'cleared',offers:'both',hourly_pay:14,max_clients:8,interests:['cards','music','tea','history','chat'],temperament:'chatty',has_car:true,references_ok:true,bio:'A natural conversationalist who never runs out of stories.'},
-    {id:'c2',full_name:'Grace Owens',source:'referral',city:'Guildford',postcode:'GU2 7XH',status:'active',dbs:'cleared',offers:'companionship',hourly_pay:14,max_clients:8,interests:['walking','gardening','nature','tea'],temperament:'active',has_car:true,references_ok:true,bio:'Always up for a walk in the park or the garden centre.'},
-    {id:'c3',full_name:'Margaret Hill',source:'flyer',city:'Woking',postcode:'GU21 6XR',status:'active',dbs:'cleared',offers:'both',hourly_pay:14.5,max_clients:8,interests:['cards','puzzles','music','baking'],temperament:'playful',has_car:false,references_ok:true,bio:'Cards, crosswords and a competitive streak.'},
-    {id:'c4',full_name:'Eleanor Voss',source:'website',city:'Guildford',postcode:'GU1 4RT',status:'active',dbs:'cleared',offers:'help',hourly_pay:15,max_clients:8,interests:['tech','admin','reading','quiet','tea'],temperament:'calm',has_car:true,references_ok:true,bio:'Gentle, unhurried company; brilliant with tech and paperwork.'},
-    {id:'c5',full_name:'Tom Bridges',city:'Woking',postcode:'GU22 7AA',phone:'07700 900345',email:'tom.bridges@email.com',status:'vetting',dbs:'submitted',offers:'both',hourly_pay:14,max_clients:8,interests:['tech','football','history','chat'],temperament:'chatty',has_car:true,references_ok:true,source:'website',last_contact_at:'2026-06-10',next_action:'Chase DBS application',next_action_due:'2026-06-20',stage_changed_at:'2026-06-08',bio:'Awaiting DBS clearance.',availability:['weekday_morning','weekend'],right_to_work:true,age_band:'45-54',fav_music:'Motown and a bit of Springsteen',heard_about:'facebook'},
-  ],
-  requesters: [
-    {id:'r1',full_name:'Sarah Mensah',email:'sarah@example.com',phone:'07700 900201',status:'active',source:'matcher',
-     matcher_notes:'For: My mum · Enjoys: A good chat & a cuppa · Frequency: Once a week, gently · Suggested match: Linda'},
-  ],
-  service_users: [
-    {id:'u1',requester_id:'r1',full_name:'Joan Mensah',relationship:'adult_child',city:'Guildford',postcode:'GU1 3AB',interests:['cards','music','tea','history'],temperament:'chatty',notes:'Loves a long chat and a milky tea. Hard of hearing on the left.',mobility_notes:'Walks with a stick; short strolls fine.',fav_music:'Vera Lynn, wartime classics and a bit of jazz',routines:'Tea at 4pm sharp; likes the radio on in the mornings.',dietary:'No added salt; soft foods easier since her dentures.',birthday:'1939-03-12',important_dates:'Wedding anniversary 14 Sept (widowed 2019).',family_details:'Son Daniel visits Sundays. Daughter in Canada calls Weds.',conversation_starters:'Ask about her years teaching infants in Leeds.'},
-    {id:'u2',requester_id:'r1',full_name:'Albert Mensah',relationship:'adult_child',city:'Guildford',postcode:'GU1 3AB',interests:['tech','reading','quiet','tea'],temperament:'calm',notes:'Struggles with his tablet and the post pile. Prefers calm company.',mobility_notes:''},
-  ],
-  safeguarding_concerns: [
-    {id:'sg1',service_user_id:'u1',companion_id:'c1',visit_id:null,category:'wellbeing',severity:2,description:'Joan seemed quieter than usual today and said she had not slept. Worth keeping an eye on.',status:'open',raised_at:'2026-06-24T15:40:00Z'},
-  ],
-  bookings: [
-    {id:'b1',requester_id:'r1',service_user_id:'u1',companion_id:'c1',service:'companionship',frequency:'weekly',hourly_rate:32,visit_length_hrs:2,status:'active',start_date:'2026-06-24'},
-  ],
-  visits: [
-    {id:'v1',booking_id:'b1',companion_id:'c1',scheduled_at:'2026-06-24T10:00',length_hrs:2,status:'completed'},
-    {id:'v2',booking_id:'b1',companion_id:'c1',scheduled_at:'2026-07-01T10:00',length_hrs:2,status:'scheduled'},
-  ],
-  visit_notes: [
-    {id:'n1',visit_id:'v1',companion_id:'c1',summary:'Joan was in great spirits — we worked through the crossword over two cups of tea and she told me all about her time teaching in Lagos. She walked me to the door, which she was pleased about.',shared_with_family:true,created_at:'2026-06-24'},
-  ],
+  companions: [],
+  requesters: [],
+  service_users: [],
+  safeguarding_concerns: [],
+  bookings: [],
+  visits: [],
+  visit_notes: [],
   matches: [],
-  visit_pay: [
-    {id:'vp1',visit_id:'v1',companion_id:'c1',hours:2,rate:14,amount:28,status:'accrued'},
-  ],
+  visit_pay: [],
   payouts: [],
   features: {stripe:'off', reminders:'off', documents:'on', reporting:'on', ai:'off'},
   rates: {rate_companionship:'28', rate_help:'30', rate_both:'32'},
@@ -49,12 +31,8 @@ const DB = {
     {id:'p2',label:'Twice-Weekly',tier:'standard',visits_per_week:2,monthly_price:0,active:true,sort_order:2},
     {id:'p3',label:'Most Days',tier:'companion_plus',visits_per_week:4,monthly_price:0,active:true,sort_order:3},
   ],
-  documents: [
-    {id:'d1',kind:'dbs',companion_id:'c1',label:'DBS certificate',expires_on:'2029-03-01'},
-  ],
-  invoices: [
-    {id:'i1',requester_id:'r1',number:'CMP-2026-0001',status:'sent',total:64,amount_paid:0,period_start:'2026-06-01',period_end:'2026-06-30',due_date:'2026-07-14'},
-  ],
+  documents: [],
+  invoices: [],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -617,6 +595,10 @@ async function createInvoice(){
 
 async function invoiceAction(id,action){
   const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
+  if(typeof api!=='undefined' && api.live && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)){
+    cmpModal({title:'Demo invoice',mode:'alert',message:'This is sample data. Create a real invoice with “+ Create invoice” to manage it.'});
+    return;
+  }
   if(action==='void'){
     if(!await cmpConfirm(`Void invoice ${inv.number}? This cancels it.`,{title:'Void invoice',danger:true,okText:'Void it'})) return;
   }
@@ -667,6 +649,11 @@ function editInvoice(id){
 
 async function saveInvoice(id){
   const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
+  // guard: a demo seed row (id like 'i1') can't be saved to a UUID column
+  if(typeof api!=='undefined' && api.live && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id)){
+    cmpModal({title:'Demo invoice',mode:'alert',message:'This is sample data, not a real invoice. Create a real invoice with “+ Create invoice” and you’ll be able to edit it.'});
+    return;
+  }
   const num=v=>{const n=parseFloat(v);return isNaN(n)?0:Math.round(n*100)/100;};
   const patch={
     total: num(document.getElementById('inv-total').value),
