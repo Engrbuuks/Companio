@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v13 (stripe)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v13';
+console.log('%cCompanio operator dashboard — BUILD v14 (wellbeing+lines)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v14';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -35,6 +35,8 @@ const DB = {
   invoices: [],
   memberships: [],
   membership_plans: [],
+  wellbeing_checkins: [],
+  invoice_lines: [],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -767,12 +769,47 @@ function editInvoice(id){
       </div>
       <label style="font-weight:700;font-size:.85rem">Notes (appears on the invoice)</label>
       <textarea id="inv-notes" rows="3" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;font-family:inherit">${inv.notes||''}</textarea>
-      <div style="display:flex;gap:10px;margin-top:8px">
+
+      <div class="section-t" style="margin-top:6px">Line items</div>
+      <div id="inv-lines"></div>
+      <button class="btn sm" style="margin-top:8px" onclick="addInvoiceLine('${id}')">+ Add line</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+        <span class="muted" style="font-size:.85rem">Line items total</span>
+        <b id="inv-lines-total">£0.00</b>
+      </div>
+      <button class="btn sm" style="margin-top:8px;width:100%" onclick="applyLineTotal()">Use line items total as invoice total</button>
+
+      <div style="display:flex;gap:10px;margin-top:16px">
         <button class="btn primary" style="flex:1" onclick="saveInvoice('${id}')">Save changes</button>
         <button class="btn" onclick="closeDrawer()">Cancel</button>
       </div>
     </div>`);
+  renderInvoiceLines(id);
 }
+
+// in-memory working copy of the lines being edited
+let _invLines=[];
+function renderInvoiceLines(invId){
+  _invLines=(DB.invoice_lines||[]).filter(l=>l.invoice_id===invId)
+    .map(l=>({id:l.id,description:l.description||'',quantity:Number(l.quantity||1),unit_price:Number(l.unit_price||0)}));
+  drawInvoiceLines();
+}
+function drawInvoiceLines(){
+  const box=document.getElementById('inv-lines'); if(!box) return;
+  if(!_invLines.length){ box.innerHTML='<p class="muted" style="font-size:.85rem;margin:6px 0">No line items. Add visits or charges as individual lines, or just set the total above.</p>'; }
+  else box.innerHTML=_invLines.map((l,i)=>`
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input value="${(l.description||'').replace(/"/g,'&quot;')}" placeholder="e.g. Visit 14 Jun" oninput="_invLines[${i}].description=this.value" style="flex:2;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:.85rem">
+      <input type="number" step="0.5" value="${l.quantity}" oninput="_invLines[${i}].quantity=parseFloat(this.value)||0;updateLinesTotal()" title="hours/qty" style="width:62px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:.85rem">
+      <input type="number" step="0.01" value="${l.unit_price}" oninput="_invLines[${i}].unit_price=parseFloat(this.value)||0;updateLinesTotal()" title="£/unit" style="width:74px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:.85rem">
+      <button class="btn sm" onclick="_invLines.splice(${i},1);drawInvoiceLines()" title="Remove">✕</button>
+    </div>`).join('');
+  updateLinesTotal();
+}
+function linesTotal(){ return _invLines.reduce((s,l)=>s+(Number(l.quantity||0)*Number(l.unit_price||0)),0); }
+function updateLinesTotal(){ const el=document.getElementById('inv-lines-total'); if(el) el.textContent='£'+linesTotal().toFixed(2); }
+function addInvoiceLine(invId){ _invLines.push({description:'',quantity:1,unit_price:34}); drawInvoiceLines(); }
+function applyLineTotal(){ const el=document.getElementById('inv-total'); if(el){ el.value=linesTotal().toFixed(2); cmpToast('Total updated from line items','ok'); } }
 
 async function saveInvoice(id){
   const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
@@ -791,12 +828,32 @@ async function saveInvoice(id){
     notes: document.getElementById('inv-notes').value||null,
   };
   if(typeof api!=='undefined' && api.live){
-    try{ await supa.update('invoices',id,patch); await loadAll(DB); }
+    try{
+      await supa.update('invoices',id,patch);
+      // sync line items: delete existing, re-insert current set
+      await syncInvoiceLines(id);
+      await loadAll(DB);
+    }
     catch(e){ alert('Could not save: '+e.message); return; }
   } else {
     Object.assign(inv,patch);
+    // demo: replace this invoice's lines in memory
+    DB.invoice_lines=(DB.invoice_lines||[]).filter(l=>l.invoice_id!==id)
+      .concat(_invLines.map(l=>({id:'il'+Math.random().toString(36).slice(2),invoice_id:id,description:l.description,quantity:l.quantity,unit_price:l.unit_price,amount:Number(l.quantity||0)*Number(l.unit_price||0)})));
   }
   closeDrawer(); cmpToast('Invoice updated','ok'); render();
+}
+
+// Replace an invoice's line items with the current edited set (live mode).
+async function syncInvoiceLines(invId){
+  // remove old lines for this invoice
+  const old=(DB.invoice_lines||[]).filter(l=>l.invoice_id===invId);
+  for(const l of old){ try{ await supa.del('invoice_lines',l.id); }catch(e){} }
+  // insert the current set
+  for(const l of _invLines){
+    if(!l.description && !l.unit_price) continue;
+    try{ await supa.insert('invoice_lines',{invoice_id:invId,description:l.description||'Charge',quantity:l.quantity||1,unit_price:l.unit_price||0,amount:Number(l.quantity||0)*Number(l.unit_price||0)}); }catch(e){}
+  }
 }
 
 function computeActions(){
@@ -1176,6 +1233,7 @@ function viewReports(){
     <div class="panel-b" style="padding:18px 20px"><div style="height:260px"><canvas id="trendChart"></canvas></div></div></div>
   <div class="panel"><div class="panel-h"><h3>Companion utilisation — completed hours (30 days)</h3></div>
     <div class="panel-b" style="padding:18px 20px"><div style="height:${Math.max(160,util.length*46)}px"><canvas id="utilChart"></canvas></div></div></div>
+  ${wellbeingOverview()}
   <p class="muted" style="font-size:.84rem">Retention and cohort reports appear here once you have clients across multiple months.</p>`;
 
   queueChart(()=>{const el=document.getElementById('trendChart');if(!el)return;
@@ -1193,6 +1251,46 @@ function viewReports(){
       options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw+'h completed'}}},
         scales:{x:{beginAtZero:true,ticks:{callback:v=>v+'h'}},y:{grid:{display:false}}},animation:{duration:600}}});});
   return out;
+}
+
+// Ops-wide wellbeing overview: how each client's loneliness indication is
+// trending, so the operator can spot who needs more support. Lower = better.
+function wellbeingOverview(){
+  const wb=DB.wellbeing_checkins||[];
+  if(!wb.length) return `<div class="panel"><div class="panel-h"><h3>Client wellbeing</h3></div>
+    <div class="panel-b"><div class="empty">Wellbeing check-ins will appear here as they’re recorded — from the website check, the companion portal, or visits. You’ll see who’s improving and who needs a little more support.</div></div></div>`;
+  const byUser={};
+  wb.forEach(w=>{ (byUser[w.service_user_id]=byUser[w.service_user_id]||[]).push(w); });
+  const rows=Object.keys(byUser).map(uid=>{
+    const u=DB.service_users.find(x=>x.id===uid);
+    const list=byUser[uid].slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const latest=list[list.length-1], first=list[0];
+    const trend = list.length<2 ? 'new' : latest.score<first.score ? 'improving' : latest.score>first.score ? 'attention' : 'steady';
+    const band=latest.band||(latest.score<=1?'not_lonely':latest.score<=3?'moderate':'strong');
+    const bandChip = band==='strong'?'<span class="chip bad">Often lonely</span>'
+      : band==='moderate'?'<span class="chip warn">Some lonely moments</span>'
+      : '<span class="chip good">Well connected</span>';
+    const trendChip = trend==='improving'?'<span class="chip good">↑ improving</span>'
+      : trend==='attention'?'<span class="chip bad">↓ needs support</span>'
+      : trend==='steady'?'<span class="chip">→ steady</span>':'<span class="chip">new</span>';
+    return `<tr>
+      <td class="name">${u?u.full_name:'Service user'}</td>
+      <td>${latest.score}/6 ${bandChip}</td>
+      <td>${trendChip}</td>
+      <td class="muted">${list.length} check-in${list.length>1?'s':''}</td>
+      <td class="muted">${fmt(latest.created_at)}</td>
+    </tr>`;
+  }).join('');
+  const needAttention=Object.values(byUser).filter(list=>{
+    const l=list.slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const latest=l[l.length-1]; const band=latest.band||(latest.score<=1?'not_lonely':latest.score<=3?'moderate':'strong');
+    return band==='strong';
+  }).length;
+  return `<div class="panel"><div class="panel-h"><h3>Client wellbeing</h3>
+    ${needAttention?`<span class="chip bad">${needAttention} need${needAttention>1?'':'s'} extra support</span>`:'<span class="chip good">all stable</span>'}</div>
+    <div class="panel-b"><table><thead><tr><th>Service user</th><th>Latest</th><th>Trend</th><th>Check-ins</th><th>Last</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p class="muted" style="font-size:.8rem;margin:10px 14px 0">Lower scores mean more connected. This is a wellbeing indication, not a clinical assessment.</p></div></div>`;
 }
 
 /* ---------- THEME CUSTOMIZATION ----------

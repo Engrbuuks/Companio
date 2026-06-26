@@ -46,6 +46,13 @@ const supa = {
     if (!r.ok) throw new Error(`update ${table}: ${r.status} ${await r.text()}`);
     return (await r.json())[0];
   },
+  async del(table, id) {
+    const r = await fetch(`${SB.url}/rest/v1/${table}?id=eq.${id}`, {
+      method: 'DELETE', headers: sbHeaders(),
+    });
+    if (!r.ok) throw new Error(`delete ${table}: ${r.status} ${await r.text()}`);
+    return true;
+  },
   // call a Postgres function via RPC
   async rpc(fn, args) {
     const r = await fetch(`${SB.url}/rest/v1/rpc/${fn}`, {
@@ -129,6 +136,8 @@ async function loadAll(DB) {
   DB.safeguarding_concerns = await supa.select('safeguarding_concerns', 'select=*&order=raised_at.desc').catch(() => []);
   DB.memberships = await supa.select('memberships', 'select=*&order=created_at.desc').catch(() => []);
   DB.membership_plans = await supa.select('membership_plans', 'select=*&active=eq.true&order=sort_order').catch(() => []);
+  DB.wellbeing_checkins = await supa.select('wellbeing_checkins', 'select=*&order=created_at.desc').catch(() => []);
+  DB.invoice_lines = await supa.select('invoice_lines', 'select=*').catch(() => []);
   // pricing: plans + hourly rates (single source of truth for the website too)
   try {
     DB.plans = await supa.select('plans', 'select=*&order=sort_order').catch(() => DB.plans || []);
