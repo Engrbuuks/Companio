@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Companio — Login Check</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;margin:36px auto;padding:0 20px;color:#322E3D;line-height:1.5}
+  h1{font-size:1.25rem}
+  input{width:100%;box-sizing:border-box;padding:11px 13px;border:1px solid #d9d2dd;border-radius:10px;font-size:1rem;margin:6px 0 14px}
+  button{background:#E7B86A;color:#322E3D;border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;font-size:1rem}
+  .row{padding:11px 14px;border-radius:10px;margin:8px 0;border:1px solid #e3ddd3;font-size:.95rem}
+  .ok{background:rgba(0,135,59,.08);border-color:rgba(0,135,59,.3)}
+  .bad{background:rgba(205,18,35,.06);border-color:rgba(205,18,35,.3)}
+  .warn{background:rgba(231,184,106,.12);border-color:rgba(231,184,106,.5)}
+  code{background:#f3eee6;padding:1px 6px;border-radius:5px;font-size:.88em;word-break:break-all}
+  b{font-weight:800}
+</style>
+</head>
+<body>
+<h1>Companio — Login Check</h1>
+<p>This safely signs in and tells you whether the account is correctly linked to a companion (or family) profile. It changes nothing.</p>
+
+<script src="config.js?v=2"></script>
+
+<label>Email</label>
+<input id="email" type="email" autocomplete="username" placeholder="name@email.com">
+<label>Password</label>
+<input id="pw" type="password" autocomplete="current-password" placeholder="the password you set">
+<button id="go">Run the check</button>
+
+<div id="report" style="margin-top:18px"></div>
+
+<script>
+(function(){
+  var R=document.getElementById('report');
+  function add(cls,html){ var d=document.createElement('div'); d.className='row '+cls; d.innerHTML=html; R.appendChild(d); }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+
+  var URL = (typeof SUPABASE_URL!=='undefined'?SUPABASE_URL:'')||(window.SUPABASE_URL||'');
+  var KEY = (typeof SUPABASE_ANON_KEY!=='undefined'?SUPABASE_ANON_KEY:'')||(window.SUPABASE_ANON_KEY||'');
+
+  document.getElementById('go').onclick=async function(){
+    R.innerHTML='';
+    var email=document.getElementById('email').value.trim();
+    var pw=document.getElementById('pw').value;
+    if(!URL||!KEY){ add('bad','❌ config.js has no keys — fix that first.'); return; }
+    if(!email||!pw){ add('warn','Enter both email and password.'); return; }
+
+    // 1. sign in
+    var token, uid, uemail;
+    try{
+      var r=await fetch(URL.replace(/\/$/,'')+'/auth/v1/token?grant_type=password',{
+        method:'POST', headers:{'apikey':KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({email:email,password:pw})
+      });
+      var data=await r.json();
+      if(!r.ok){ add('bad','❌ <b>Sign-in failed:</b> '+esc(data.error_description||data.msg||('HTTP '+r.status))+'<br>This means the email/password itself is wrong, or the password was never set.'); return; }
+      token=data.access_token; uid=data.user&&data.user.id; uemail=data.user&&data.user.email;
+      add('ok','✅ <b>Sign-in works.</b> The password is correct.<br>Auth user id: <code>'+esc(uid)+'</code>');
+    }catch(e){ add('bad','❌ Could not reach the login service: '+esc(String(e))); return; }
+
+    // 2. look up a companion row for this auth user (RLS: comp_self_read)
+    async function lookup(table){
+      var r=await fetch(URL.replace(/\/$/,'')+'/rest/v1/'+table+'?select=id,full_name,status,email,auth_user_id&auth_user_id=eq.'+uid,{
+        headers:{'apikey':KEY,'Authorization':'Bearer '+token}
+      });
+      if(!r.ok) return {err:'HTTP '+r.status+' '+(await r.text())};
+      return {rows:await r.json()};
+    }
+
+    var comp=await lookup('companions');
+    if(comp.err){ add('bad','❌ Error reading companions: '+esc(comp.err)); }
+    else if(comp.rows.length){
+      var c=comp.rows[0];
+      add('ok','✅ <b>Linked to a COMPANION profile.</b> '+esc(c.full_name)+' · status: <b>'+esc(c.status)+'</b>.<br>This account should log into the companion portal correctly. If it still bounces, the issue is browser cache — hard-refresh the portal.');
+      if(c.status!=='active'){ add('warn','⚠️ Their status is <b>'+esc(c.status)+'</b>, not <b>active</b>. The portal lets them in regardless, but bookings/visits only flow once they’re active.'); }
+      return;
+    } else {
+      add('bad','❌ <b>No companion profile is linked to this login.</b> Sign-in works, but no row in <code>companions</code> has <code>auth_user_id = '+esc(uid)+'</code>. <b>This is exactly why the portal bounces with no error.</b>');
+    }
+
+    // 3. maybe they were linked as a requester by mistake, or there's an email-matched row
+    var req=await lookup('requesters');
+    if(req.rows&&req.rows.length){ add('warn','⚠️ This login IS linked to a <b>requester (family)</b> profile, not a companion. They should use the family portal — or you linked the wrong role.'); }
+
+    // 4. is there a companions row with their EMAIL but no/!= auth_user_id? (the classic mismatch)
+    try{
+      var r2=await fetch(URL.replace(/\/$/,'')+'/rest/v1/companions?select=id,full_name,status,auth_user_id&email=eq.'+encodeURIComponent(uemail),{
+        headers:{'apikey':KEY,'Authorization':'Bearer '+token}
+      });
+      if(r2.ok){
+        var byEmail=await r2.json();
+        if(byEmail.length){
+          var match=byEmail[0];
+          if(!match.auth_user_id){
+            add('warn','🔧 <b>Found the problem.</b> There IS a companion named <b>'+esc(match.full_name)+'</b> with this email, but its <code>auth_user_id</code> is empty — the invite never linked it. <br><b>Fix:</b> in Supabase, set that row’s <code>auth_user_id</code> to <code>'+esc(uid)+'</code>. Then login works.');
+          } else if(match.auth_user_id!==uid){
+            add('warn','🔧 <b>Found the problem.</b> A companion with this email is linked to a DIFFERENT auth id (<code>'+esc(match.auth_user_id.slice(0,8))+'…</code>) than the one you just logged in as. They likely have two auth accounts. <br><b>Fix:</b> update that row’s <code>auth_user_id</code> to <code>'+esc(uid)+'</code>.');
+          }
+        } else {
+          add('warn','No companion row even matches this email. Check the application actually saved (the original registration issue), or that you’re testing the right email.');
+        }
+      }
+    }catch(e){}
+  };
+})();
+</script>
+</body>
+</html>
