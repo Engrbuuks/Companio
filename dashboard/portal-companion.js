@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v3 (login-fix + guard)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v3';
+console.log('%cCompanio companion portal — BUILD v4 (cache-fix)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v4';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -128,6 +128,7 @@ function showLogin(err){
     <label>Password</label><input id="p" type="password" required autocomplete="current-password">
     <button class="btn primary" style="width:100%;margin-top:18px;padding:12px" type="submit">Sign in</button>
     <p style="text-align:center;margin:14px 0 0"><a href="#" id="fp" style="color:var(--aubergine);font-size:.85rem;font-weight:600;text-decoration:none">Forgot your password?</a></p>
+    <p style="text-align:center;margin:10px 0 0;font-size:.7rem;opacity:.4">${window.COMPANIO_BUILD||'?'}</p>
   </form></div>`;
   const fpl=$('#fp');
   if(fpl) fpl.onclick=async(ev)=>{ev.preventDefault();
@@ -173,12 +174,22 @@ function renderApp(){
 }
 function renderTab(){
   const v=$('#tabview');
-  if(tab==='home') v.innerHTML=viewHome();
-  else if(tab==='people') v.innerHTML=viewPeople();
-  else if(tab==='visits') v.innerHTML=viewVisits();
-  else if(tab==='notes') v.innerHTML=viewNotes();
-  else if(tab==='earnings') v.innerHTML=viewEarnings();
-  else v.innerHTML=viewAvail();
+  // Map tab -> view fn, but tolerate any being absent (mismatched/partial deploy)
+  const views={ home:typeof viewHome==='function'?viewHome:null,
+    people:typeof viewPeople==='function'?viewPeople:null,
+    visits:typeof viewVisits==='function'?viewVisits:null,
+    notes:typeof viewNotes==='function'?viewNotes:null,
+    earnings:typeof viewEarnings==='function'?viewEarnings:null,
+    avail:typeof viewAvail==='function'?viewAvail:null };
+  let fn=views[tab];
+  // if the chosen tab's view is missing, fall back to the first one that exists
+  if(typeof fn!=='function'){ tab=Object.keys(views).find(k=>typeof views[k]==='function')||'visits'; fn=views[tab]; }
+  try{
+    v.innerHTML = (typeof fn==='function') ? fn() : '<div class="panel"><div class="empty">Your portal is loading. If this stays, please refresh.</div></div>';
+  }catch(e){
+    console.error('Tab render error ['+tab+']:', e);
+    v.innerHTML='<div class="panel"><div style="padding:18px"><b>This section had a hiccup.</b><div class="muted" style="font-size:.85rem;margin-top:6px">'+(e.message||e)+'</div><button class="btn sm" style="margin-top:10px" onclick="tab=\'visits\';renderApp()">My visits</button></div></div>';
+  }
 }
 
 function viewEarnings(){
