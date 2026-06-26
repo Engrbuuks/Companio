@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v7 (invoice+signout)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v7';
+console.log('%cCompanio companion portal — BUILD v8 (invoice-edit+layout)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v8';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});

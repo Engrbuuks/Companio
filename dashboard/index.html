@@ -23,7 +23,7 @@ h1,h2,h3,h4{font-family:var(--serif);color:var(--aubergine-dark);margin:0}
 
 /* layout */
 .app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
-.side{background:var(--aubergine-dark);color:var(--offwhite);padding:22px 16px;position:sticky;top:0;height:100vh}
+.side{background:var(--aubergine-dark);color:var(--offwhite);padding:22px 16px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column}
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .brand .mark{width:30px;height:30px;border-radius:50%;background:var(--wheat);display:grid;place-items:center;color:var(--aubergine-dark);font-weight:800}
 .brand b{font-family:var(--serif);font-size:1.25rem;color:#fff}
@@ -34,7 +34,7 @@ h1,h2,h3,h4{font-family:var(--serif);color:var(--aubergine-dark);margin:0}
 .nav button:hover{background:rgba(255,255,255,.06);color:#fff}
 .nav button.on{background:var(--wheat);color:var(--aubergine-dark)}
 .nav .ico{width:18px;text-align:center}
-.side .mode{position:absolute;bottom:18px;left:16px;right:16px;font-size:.74rem;color:rgba(244,240,234,.55);
+.side .mode{margin-top:auto;font-size:.74rem;color:rgba(244,240,234,.55);
   border-top:1px solid rgba(255,255,255,.12);padding-top:12px}
 .side .mode b{color:var(--wheat)}
 
@@ -273,8 +273,8 @@ body.editing .head::after{content:"✏️ Editing — click any highlighted text
 <div class="drawer-bg" id="drawerBg" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"><div id="drawerContent"></div></aside>
 
-<script src="config.js?v=7"></script>
-<script src="supabase.js?v=7"></script>
-<script src="engine.js?v=7"></script>
+<script src="config.js?v=8"></script>
+<script src="supabase.js?v=8"></script>
+<script src="engine.js?v=8"></script>
 </body>
 </html>

@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v7 (invoice+signout)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v7';
+console.log('%cCompanio operator dashboard — BUILD v8 (invoice-edit+layout)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v8';
 
 /* ---------- DEMO DATA (mirror of seed) ---------- */
 const DB = {
@@ -544,8 +544,9 @@ function viewFinance(){
     ${DB.invoices.map(i=>{
       const r=DB.requesters.find(x=>x.id===i.requester_id);
       const fam=r?r.full_name:'—';
-      const acts=i.status==='void'?'' :
-        i.status==='paid'?'<span class="chip good">settled</span>' :
+      const acts=i.status==='void'?'<span class="chip">Void</span>' :
+        i.status==='paid'?`<button class="btn sm" onclick="editInvoice('${i.id}')">Edit</button> <span class="chip good">settled</span>` :
+        `<button class="btn sm" onclick="editInvoice('${i.id}')">Edit</button> `+
         `${i.status==='draft'?`<button class="btn sm" onclick="invoiceAction('${i.id}','sent')">Mark sent</button> `:''}`+
         `<button class="btn sm primary" onclick="invoiceAction('${i.id}','paid')">Mark paid</button> `+
         `<button class="btn sm" onclick="invoiceAction('${i.id}','void')">Void</button>`;
@@ -630,6 +631,58 @@ async function invoiceAction(id,action){
   }
   cmpToast(`Invoice ${action==='paid'?'marked paid':action==='sent'?'marked sent':'voided'}`,'ok');
   render();
+}
+
+// Edit an invoice's amount, due date and notes.
+function editInvoice(id){
+  const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
+  const r=DB.requesters.find(x=>x.id===inv.requester_id);
+  openDrawer(`
+    <div class="drawer-h"><div><h2>Edit ${inv.number||'invoice'}</h2>
+      <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${r?r.full_name:'family'} · ${cap(inv.status)}</div></div>
+      <button class="x" onclick="closeDrawer()">×</button></div>
+    <div class="drawer-b">
+      <label style="font-weight:700;font-size:.85rem">Total (£)</label>
+      <input id="inv-total" type="number" step="0.01" min="0" value="${Number(inv.total||0)}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="font-weight:700;font-size:.85rem">Amount paid (£)</label>
+      <input id="inv-paid" type="number" step="0.01" min="0" value="${Number(inv.amount_paid||0)}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Due date</label>
+          <input id="inv-due" type="date" value="${inv.due_date||''}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box"></div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Period start</label>
+          <input id="inv-ps" type="date" value="${inv.period_start||''}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box"></div>
+        <div style="flex:1"><label style="font-weight:700;font-size:.85rem">Period end</label>
+          <input id="inv-pe" type="date" value="${inv.period_end||''}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box"></div>
+      </div>
+      <label style="font-weight:700;font-size:.85rem">Notes (appears on the invoice)</label>
+      <textarea id="inv-notes" rows="3" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;font-family:inherit">${inv.notes||''}</textarea>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn primary" style="flex:1" onclick="saveInvoice('${id}')">Save changes</button>
+        <button class="btn" onclick="closeDrawer()">Cancel</button>
+      </div>
+    </div>`);
+}
+
+async function saveInvoice(id){
+  const inv=DB.invoices.find(i=>i.id===id); if(!inv) return;
+  const num=v=>{const n=parseFloat(v);return isNaN(n)?0:Math.round(n*100)/100;};
+  const patch={
+    total: num(document.getElementById('inv-total').value),
+    amount_paid: num(document.getElementById('inv-paid').value),
+    due_date: document.getElementById('inv-due').value||null,
+    period_start: document.getElementById('inv-ps').value||null,
+    period_end: document.getElementById('inv-pe').value||null,
+    notes: document.getElementById('inv-notes').value||null,
+  };
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('invoices',id,patch); await loadAll(DB); }
+    catch(e){ alert('Could not save: '+e.message); return; }
+  } else {
+    Object.assign(inv,patch);
+  }
+  closeDrawer(); cmpToast('Invoice updated','ok'); render();
 }
 
 function computeActions(){
