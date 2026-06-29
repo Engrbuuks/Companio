@@ -10,7 +10,7 @@ const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'
 const cap=s=>s?s[0].toUpperCase()+s.slice(1).replace(/_/g,' '):'';
 const money=n=>'£'+Number(n||0).toFixed(2);
 
-let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS=[];
+let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS=[], WELLBEING=[];
 
 /* ---------- DEMO DATA ---------- */
 const DEMO={
@@ -45,6 +45,11 @@ async function loadMe(){
   VISITS=(visits||[]).map(v=>({...v,user_name:v.bookings?.service_users?.full_name||'',companion_name:v.bookings?.companions?.full_name||''}));
   NOTES=(notes||[]).map(n=>({...n,user_name:n.visits?.bookings?.service_users?.full_name||'',companion_name:n.visits?.bookings?.companions?.full_name||''}));
   INVOICES=invoices||[];
+  // wellbeing check-ins for the loved ones (gentle peace-of-mind glance)
+  try{
+    const uids=USERS.map(u=>u.id);
+    if(uids.length){ WELLBEING = await supa.select('wellbeing_checkins',`select=*&service_user_id=in.(${uids.join(',')})&order=created_at.desc`).catch(()=>[]) || []; }
+  }catch(e){ WELLBEING=[]; }
   // "Who is looking after my loved one?" — operator-decided, family informed
   try{ COMPANIONS = await supa.rpc('my_companion',{}) || []; }catch(e){ COMPANIONS=[]; }
   return ME;
@@ -77,7 +82,7 @@ function showLogin(err){
   };
 }
 
-let tab='loved';
+let tab='home';
 function renderApp(){
   const live=(typeof IS_LIVE!=='undefined' && IS_LIVE);
   $('#root').innerHTML=`
@@ -86,6 +91,7 @@ function renderApp(){
   <div class="wrap">
     <div class="hello"><h1>Hello, ${ME.full_name.split(' ')[0]}</h1><p class="muted">How your loved one is doing, and everything in one place.</p></div>
     <div class="tabs">
+      <button data-t="home" class="${tab==='home'?'on':''}">Home</button>
       <button data-t="loved" class="${tab==='loved'?'on':''}">Loved ones</button>
       <button data-t="notes" class="${tab==='notes'?'on':''}">Notes from visits</button>
       <button data-t="visits" class="${tab==='visits'?'on':''}">Schedule</button>
@@ -98,7 +104,112 @@ function renderApp(){
 }
 function renderTab(){
   const v=$('#tabview');
-  v.innerHTML = tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='visits'?viewVisits() : viewBills();
+  v.innerHTML = tab==='home'?viewHome() : tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='visits'?viewVisits() : viewBills();
+}
+
+function viewHome(){
+  const firstName=(ME && (ME.full_name||'').split(' ')[0])||'there';
+  const greeting=(()=>{ const h=new Date().getHours(); return h<12?'Good morning':h<18?'Good afternoon':'Good evening'; })();
+
+  // who we're caring for
+  const lovedNames = USERS.map(u=>u.full_name.split(' ')[0]).join(' & ');
+
+  // next upcoming visit
+  const now=new Date();
+  const upcoming=VISITS.filter(v=>new Date(v.scheduled_at)>=now && v.status!=='cancelled')
+    .sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
+  const nextVisit=upcoming[0];
+
+  // latest shared note
+  const latestNote=NOTES[0];
+
+  // wellbeing glance (lower score = more connected)
+  const wbByUser={};
+  (WELLBEING||[]).forEach(w=>{ (wbByUser[w.service_user_id]=wbByUser[w.service_user_id]||[]).push(w); });
+
+  // ---- Welcome ----
+  let out=`<div class="panel" style="background:linear-gradient(165deg,#fff,var(--mist,#faf7f2));border:1px solid rgba(231,184,106,.4)">
+    <div style="padding:22px 22px 20px">
+      <div class="muted" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.06em">${greeting}</div>
+      <h2 style="margin:4px 0 6px;font-family:var(--serif,serif)">Hello, ${firstName}</h2>
+      <p class="muted" style="margin:0">${USERS.length?`Here’s how things are${lovedNames?` for ${lovedNames}`:''}. Everything important is on this page — and we’re always just a message away.`:`Welcome to Companio. Once your introduction call is done, this is where you’ll see everything about your loved one’s care.`}</p>
+    </div>
+  </div>`;
+
+  // ---- Next visit (front and centre) ----
+  if(nextVisit){
+    const when=new Date(nextVisit.scheduled_at);
+    const dayLabel=when.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+    const timeLabel=when.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    out+=`<div class="panel"><div class="panel-h"><h3>Next visit</h3><span class="chip good">Confirmed</span></div>
+      <div style="padding:16px 20px;display:flex;align-items:center;gap:16px">
+        <div style="text-align:center;background:var(--aubergine-dark,#322E3D);color:#fff;border-radius:14px;padding:12px 16px;min-width:64px">
+          <div style="font-size:1.5rem;font-weight:800;line-height:1;font-family:var(--serif,serif)">${when.getDate()}</div>
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;opacity:.8">${when.toLocaleDateString('en-GB',{month:'short'})}</div>
+        </div>
+        <div style="flex:1">
+          <div class="name" style="font-size:1.05rem">${dayLabel}, ${timeLabel}</div>
+          <div class="muted">${nextVisit.user_name?`Visiting ${nextVisit.user_name.split(' ')[0]}`:''}${nextVisit.companion_name?` · with ${nextVisit.companion_name}`:''}</div>
+        </div>
+      </div></div>`;
+  } else if(USERS.length){
+    out+=`<div class="panel"><div class="panel-h"><h3>Next visit</h3></div>
+      <div class="empty">No visit scheduled just yet. We’ll confirm the next one here as soon as it’s set.</div></div>`;
+  }
+
+  // ---- Companion + wellbeing per loved one ----
+  USERS.forEach(u=>{
+    const comp=(COMPANIONS||[]).find(c=>c.service_user_id===u.id);
+    const wb=(wbByUser[u.id]||[]).slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const latest=wb[wb.length-1];
+    let wbGlance='';
+    if(latest){
+      const band=latest.band||(latest.score<=1?'not_lonely':latest.score<=3?'moderate':'strong');
+      const first=wb[0];
+      const trend = wb.length<2?'':latest.score<first.score?' and improving':latest.score>first.score?'':'';
+      const label = band==='strong'?'could use a little more connection'
+        : band==='moderate'?`doing okay${trend}`
+        : `doing well${trend}`;
+      const chip = band==='strong'?'warn':band==='moderate'?'wheat':'good';
+      wbGlance=`<div style="padding:0 20px 14px"><span class="chip ${chip}">Wellbeing: ${label}</span></div>`;
+    }
+    if(comp){
+      out+=`<div class="panel"><div class="panel-h"><h3>${u.full_name.split(' ')[0]}’s companion</h3></div>
+        <div class="row" style="padding:16px 20px">
+          <div style="display:flex;gap:14px;align-items:center">
+            <div style="width:54px;height:54px;border-radius:50%;flex:0 0 auto;background:${comp.companion_photo?`url('${comp.companion_photo}') center/cover`:'var(--wheat,#E7B86A)'};display:grid;place-items:center;font-weight:800;color:#322E3D;font-family:var(--serif,serif)">${comp.companion_photo?'':(comp.companion_name||'?').split(' ').map(x=>x[0]).slice(0,2).join('')}</div>
+            <div style="flex:1">
+              <div class="name" style="font-size:1.05rem">${comp.companion_name}</div>
+              ${comp.companion_bio?`<div class="muted" style="font-size:.88rem;margin-top:2px">${comp.companion_bio}</div>`:''}
+              ${(comp.shared_interests&&comp.shared_interests.length)?`<div style="margin-top:6px;font-size:.82rem">In common: ${comp.shared_interests.map(i=>`<span class="chip">${i}</span>`).join(' ')}</div>`:''}
+            </div>
+          </div>
+        </div>${wbGlance}</div>`;
+    } else if(wbGlance){
+      out+=`<div class="panel"><div class="panel-h"><h3>${u.full_name.split(' ')[0]}</h3></div>${wbGlance}</div>`;
+    }
+  });
+
+  // ---- Latest visit note (surfaced) ----
+  if(latestNote){
+    out+=`<div class="panel"><div class="panel-h"><h3>From the last visit</h3>
+      <button class="linklike" onclick="tab='notes';renderApp()" style="background:none;border:0;color:var(--wheat-deep,#C8943B);font-weight:700;cursor:pointer;font-size:.85rem">See all notes →</button></div>
+      <div style="padding:6px 20px 16px">
+        <div class="note-card"><div class="meta">${latestNote.companion_name} on ${latestNote.user_name||'your loved one'} · ${fmt(latestNote.created_at)}</div>${latestNote.summary}</div>
+      </div></div>`;
+  }
+
+  // ---- Contact / reach us ----
+  out+=`<div class="panel"><div class="panel-h"><h3>Anything on your mind?</h3></div>
+    <div style="padding:16px 20px">
+      <p class="muted" style="margin:0 0 12px">We’re here whenever you need us — a question, a change to the schedule, or just to talk something through.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a class="btn primary" href="mailto:hello@mycompanio.co.uk?subject=A%20message%20about%20${encodeURIComponent(lovedNames||'my%20loved%20one')}">✉️ Message the team</a>
+        <button class="btn" onclick="tab='visits';renderApp()">View schedule</button>
+      </div>
+    </div></div>`;
+
+  return out;
 }
 
 function viewLoved(){
