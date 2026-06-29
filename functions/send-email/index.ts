@@ -54,6 +54,18 @@ function build(type: string, data: Record<string, unknown>) {
           <p style="margin:0 0 12px">There’s nothing else you need to do right now. We’ll take it from here.</p>
           <p style="margin:0">With warmth,<br>The Companio team</p>`),
       };
+    case "interview_scheduled": // -> companion applicant
+      return {
+        to: String(data.email ?? ""),
+        subject: "Your Companio interview is booked",
+        html: wrap(`Good news, ${data.first_name ?? "there"}`, `
+          <p style="margin:0 0 12px">Thank you for applying to become a Companio companion. We'd love to have a chat with you.</p>
+          <p style="margin:0 0 6px"><strong>When:</strong> ${data.scheduled_at ?? ""}</p>
+          <p style="margin:0 0 6px"><strong>How:</strong> ${data.method === "in_person" ? "In person" : data.method === "phone" ? "Phone call" : "Video call"}</p>
+          ${data.location ? `<p style="margin:0 0 12px"><strong>Details:</strong> ${data.location}</p>` : ""}
+          <p style="margin:12px 0 12px">It's a friendly, relaxed conversation — a chance for us to get to know you and for you to ask anything. There's nothing to prepare.</p>
+          <p style="margin:0">Warm wishes,<br>The Companio team</p>`),
+      };
     case "note_to_family": // -> requester after a visit note
       return {
         to: String(data.email ?? ""),

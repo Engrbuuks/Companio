@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v14 (wellbeing+lines)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v14';
+console.log('%cCompanio operator dashboard — BUILD v15 (interviews)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v15';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -37,6 +37,7 @@ const DB = {
   membership_plans: [],
   wellbeing_checkins: [],
   invoice_lines: [],
+  interviews: [],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -996,6 +997,7 @@ function viewPipeline(){
       <button class="btn primary" onclick="openAddApplicant()">+ Add applicant</button>
     </div>
   </div></div>
+  ${upcomingInterviewsPanel()}
   ${followUps.length?`<div class="panel" style="border-color:var(--wheat)"><div class="panel-h"><h3>⏰ Needs follow-up</h3><span class="chip ${followUps.some(f=>f.overdue)?'bad':'warn'}">${followUps.length}</span></div>
     <div class="panel-b">${followUps.map(f=>`<div class="row" style="padding:11px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)">
       <div style="flex:1"><span class="name">${f.c.full_name}</span> <span class="sub2">· ${cap(f.c.status)}${f.c.source?' · '+cap(f.c.source):''}</span>
@@ -1491,6 +1493,7 @@ function openCompanion(id){
     <div class="field-row"><span class="k">Offers</span><span class="v"><span class="dot ${c.offers}"></span> ${cap(c.offers)}</span></div>
     ${loginRow(c,'companion')}
     ${vettingChecklist(c)}
+    ${interviewSection(c)}
     <div class="section-t">Capacity & pay</div>
     <div class="field-row"><span class="k">Clients</span><span class="v">${used} / ${c.max_clients}</span></div>
     <div class="field-row"><span class="k">Pay rate</span><span class="v">£<input type="number" value="${(c.hourly_pay||0).toFixed(2)}" min="0" step="0.5" onchange="savePay('${c.id}',this.value)" style="width:80px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;text-align:right;font-family:inherit">/hr</span></div>
@@ -1507,6 +1510,143 @@ function openCompanion(id){
   </div>`);
 }
 function availLabel(a){return ({weekday_morning:'Weekday mornings',weekday_afternoon:'Weekday afternoons',evening:'Evenings',weekend:'Weekends',flexible:'Flexible'}[a])||a;}
+
+/* ---------- INTERVIEW SCHEDULER ---------- */
+function interviewSection(c){
+  // only relevant for people in the hiring pipeline
+  if(!['applicant','vetting'].includes(c.status)) return '';
+  const list=(DB.interviews||[]).filter(i=>i.companion_id===c.id)
+    .sort((a,b)=>new Date(b.scheduled_at)-new Date(a.scheduled_at));
+  const next=list.find(i=>i.status==='scheduled');
+  let html='<div class="section-t">Interview</div>';
+  if(next){
+    html+=`<div class="field-row"><span class="k">Scheduled</span><span class="v">${fmt(next.scheduled_at)} · ${interviewMethodLabel(next.method)}</span></div>`;
+    if(next.conducted_by) html+=`<div class="field-row"><span class="k">With</span><span class="v">${next.conducted_by}</span></div>`;
+    if(next.location) html+=`<div class="field-row"><span class="k">Where</span><span class="v">${next.location}</span></div>`;
+    html+=`<div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn sm primary" onclick="completeInterview('${next.id}','${c.id}')">Mark done →</button>
+      <button class="btn sm" onclick="cancelInterview('${next.id}','${c.id}')">Cancel</button>
+      <button class="btn sm" onclick="bookInterview('${c.id}')">Reschedule</button>
+    </div>`;
+  } else {
+    const past=list.filter(i=>i.status!=='scheduled');
+    html+=`<button class="btn sm primary" onclick="bookInterview('${c.id}')">📅 Book interview</button>`;
+    if(past.length) html+=`<div class="sub2" style="margin-top:8px">Past: ${past.map(i=>`${fmt(i.scheduled_at)} (${cap(i.status)}${i.outcome?' · '+i.outcome:''})`).join(' · ')}</div>`;
+  }
+  return html;
+}
+function interviewMethodLabel(m){return ({video:'Video call',phone:'Phone call',in_person:'In person'}[m])||m;}
+
+// Upcoming interviews across all applicants — at-a-glance calendar list.
+function upcomingInterviewsPanel(){
+  const now=new Date();
+  const up=(DB.interviews||[]).filter(i=>i.status==='scheduled' && new Date(i.scheduled_at)>=new Date(now.getTime()-3600000))
+    .sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
+  if(!up.length) return '';
+  const rows=up.map(i=>{
+    const c=DB.companions.find(x=>x.id===i.companion_id);
+    return `<div class="row" style="padding:11px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);cursor:pointer" onclick="openCompanion('${i.companion_id}')">
+      <div style="min-width:140px"><span class="name">${fmt(i.scheduled_at)}</span></div>
+      <div style="flex:1"><span class="name">${c?c.full_name:'Applicant'}</span>
+        <div class="sub2">${interviewMethodLabel(i.method)}${i.conducted_by?' · with '+i.conducted_by:''}${i.location?' · '+i.location:''}</div></div>
+      <span class="chip wheat">${interviewMethodLabel(i.method)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="panel" style="border-color:var(--wheat)"><div class="panel-h"><h3>📅 Upcoming interviews</h3><span class="chip wheat">${up.length}</span></div>
+    <div class="panel-b">${rows}</div></div>`;
+}
+
+function bookInterview(companionId){
+  const c=DB.companions.find(x=>x.id===companionId); if(!c) return;
+  const interviewers=(DB.staff||[]).map(s=>s.full_name).filter(Boolean);
+  const interviewerOpts=interviewers.length?interviewers.map(n=>`<option value="${n}">${n}</option>`).join(''):'<option value="Me">Me</option>';
+  openDrawer(`
+    <div class="drawer-h"><div><h2>Book interview</h2>
+      <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">${c.full_name}</div></div>
+      <button class="x" onclick="openCompanion('${c.id}')">×</button></div>
+    <div class="drawer-b">
+      <label style="font-weight:700;font-size:.85rem">Date &amp; time</label>
+      <input id="iv-when" type="datetime-local" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="font-weight:700;font-size:.85rem">Method</label>
+      <select id="iv-method" onchange="ivMethodHint()" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+        <option value="video">Video call</option>
+        <option value="phone">Phone call</option>
+        <option value="in_person">In person</option>
+      </select>
+      <label style="font-weight:700;font-size:.85rem">Conducted by</label>
+      <select id="iv-by" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">${interviewerOpts}</select>
+      <label style="font-weight:700;font-size:.85rem" id="iv-loc-label">Video link</label>
+      <input id="iv-loc" placeholder="e.g. Zoom/Meet link, phone number, or address" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="font-weight:700;font-size:.85rem">Private note (optional)</label>
+      <textarea id="iv-notes" rows="2" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;font-family:inherit"></textarea>
+      <p class="muted" style="font-size:.82rem">${c.email?`We’ll email ${c.email} the details once email is live.`:'No email on file — they won’t be auto-notified.'}</p>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn primary" style="flex:1" onclick="saveInterview('${c.id}')">Book it</button>
+        <button class="btn" onclick="openCompanion('${c.id}')">Cancel</button>
+      </div>
+    </div>`);
+}
+function ivMethodHint(){
+  const m=document.getElementById('iv-method').value;
+  const lbl=document.getElementById('iv-loc-label');
+  if(lbl) lbl.textContent = m==='phone'?'Phone number':m==='in_person'?'Address':'Video link';
+}
+
+async function saveInterview(companionId){
+  const when=document.getElementById('iv-when').value;
+  if(!when){ cmpToast('Pick a date and time','bad'); return; }
+  const rec={
+    companion_id:companionId,
+    scheduled_at:new Date(when).toISOString(),
+    method:document.getElementById('iv-method').value,
+    conducted_by:document.getElementById('iv-by').value||null,
+    location:document.getElementById('iv-loc').value||null,
+    notes:document.getElementById('iv-notes').value||null,
+    status:'scheduled',
+  };
+  if(typeof api!=='undefined' && api.live){
+    try{
+      await supa.insert('interviews',rec);
+      // nudge status into the pipeline visibly
+      const c=DB.companions.find(x=>x.id===companionId);
+      if(c && c.status==='applicant'){ try{ await supa.update('companions',companionId,{next_action:'Interview booked'}); }catch(e){} }
+      await loadAll(DB);
+    }catch(e){ alert('Could not book: '+e.message); return; }
+  } else {
+    DB.interviews=DB.interviews||[];
+    DB.interviews.push(Object.assign({id:'iv'+Date.now()},rec));
+  }
+  closeDrawer(); cmpToast('Interview booked'+( (DB.companions.find(x=>x.id===companionId)||{}).email?' · applicant emailed':''),'ok');
+  render(); openCompanion(companionId);
+}
+
+async function completeInterview(interviewId, companionId){
+  const outcome=prompt('Interview outcome (optional note on how it went):','');
+  if(outcome===null) return; // cancelled
+  const move=confirm('Move this applicant forward to vetting?\n\nOK = move to vetting\nCancel = leave status as is');
+  if(typeof api!=='undefined' && api.live){
+    try{
+      await supa.update('interviews',interviewId,{status:'completed',outcome:outcome||null,updated_at:new Date().toISOString()});
+      if(move){ await supa.update('companions',companionId,{status:'vetting'}); }
+      await loadAll(DB);
+    }catch(e){ alert('Could not update: '+e.message); return; }
+  } else {
+    const iv=(DB.interviews||[]).find(x=>x.id===interviewId); if(iv){ iv.status='completed'; iv.outcome=outcome||null; }
+    if(move){ const c=DB.companions.find(x=>x.id===companionId); if(c) c.status='vetting'; }
+  }
+  cmpToast('Interview marked done'+(move?' · moved to vetting':''),'ok'); render(); openCompanion(companionId);
+}
+
+async function cancelInterview(interviewId, companionId){
+  if(!confirm('Cancel this interview?')) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('interviews',interviewId,{status:'cancelled',updated_at:new Date().toISOString()}); await loadAll(DB); }
+    catch(e){ alert('Could not cancel: '+e.message); return; }
+  } else {
+    const iv=(DB.interviews||[]).find(x=>x.id===interviewId); if(iv) iv.status='cancelled';
+  }
+  cmpToast('Interview cancelled',''); render(); openCompanion(companionId);
+}
 
 /* ---------- LOGIN PROVISIONING (Model A: invite on approval) ---------- */
 function loginRow(person, role){
