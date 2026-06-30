@@ -139,6 +139,7 @@ async function loadAll(DB) {
   DB.wellbeing_checkins = await supa.select('wellbeing_checkins', 'select=*&order=created_at.desc').catch(() => []);
   DB.invoice_lines = await supa.select('invoice_lines', 'select=*').catch(() => []);
   DB.interviews = await supa.select('interviews', 'select=*&order=scheduled_at.desc').catch(() => []);
+  DB.messages = await supa.select('messages', 'select=*&order=created_at').catch(() => []);
   // pricing: plans + hourly rates (single source of truth for the website too)
   try {
     DB.plans = await supa.select('plans', 'select=*&order=sort_order').catch(() => DB.plans || []);

@@ -10,7 +10,7 @@ const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'
 const cap=s=>s?s[0].toUpperCase()+s.slice(1).replace(/_/g,' '):'';
 const money=n=>'£'+Number(n||0).toFixed(2);
 
-let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS=[], WELLBEING=[];
+let ME=null, USERS=[], BOOKINGS=[], VISITS=[], NOTES=[], INVOICES=[], COMPANIONS=[], WELLBEING=[], MESSAGES=[], MSG_UNREAD=0;
 
 /* ---------- DEMO DATA ---------- */
 const DEMO={
@@ -50,6 +50,11 @@ async function loadMe(){
     const uids=USERS.map(u=>u.id);
     if(uids.length){ WELLBEING = await supa.select('wellbeing_checkins',`select=*&service_user_id=in.(${uids.join(',')})&order=created_at.desc`).catch(()=>[]) || []; }
   }catch(e){ WELLBEING=[]; }
+  // in-portal messages with the team
+  try{
+    MESSAGES = await supa.select('messages',`select=*&requester_id=eq.${ME.id}&order=created_at`).catch(()=>[]) || [];
+    MSG_UNREAD = MESSAGES.filter(m=>m.sender==='team' && !m.read_by_family).length;
+  }catch(e){ MESSAGES=[]; MSG_UNREAD=0; }
   // "Who is looking after my loved one?" — operator-decided, family informed
   try{ COMPANIONS = await supa.rpc('my_companion',{}) || []; }catch(e){ COMPANIONS=[]; }
   return ME;
@@ -96,6 +101,7 @@ function renderApp(){
       <button data-t="notes" class="${tab==='notes'?'on':''}">Notes from visits</button>
       <button data-t="memories" class="${tab==='memories'?'on':''}">Their story</button>
       <button data-t="visits" class="${tab==='visits'?'on':''}">Schedule</button>
+      <button data-t="messages" class="${tab==='messages'?'on':''}">Messages${MSG_UNREAD>0?` <span class="tab-badge">${MSG_UNREAD}</span>`:''}</button>
       <button data-t="bills" class="${tab==='bills'?'on':''}">Billing</button>
     </div>
     <div id="tabview"></div>
@@ -105,7 +111,7 @@ function renderApp(){
 }
 function renderTab(){
   const v=$('#tabview');
-  v.innerHTML = tab==='home'?viewHome() : tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='memories'?viewMemories() : tab==='visits'?viewVisits() : viewBills();
+  v.innerHTML = tab==='home'?viewHome() : tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='memories'?viewMemories() : tab==='messages'?viewMessages() : tab==='visits'?viewVisits() : viewBills();
 }
 
 function viewHome(){
@@ -212,7 +218,7 @@ function viewHome(){
     <div style="padding:16px 20px">
       <p class="muted" style="margin:0 0 12px">We’re here whenever you need us — a question, a change to the schedule, or just to talk something through.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="btn primary" href="mailto:hello@mycompanio.co.uk?subject=A%20message%20about%20${encodeURIComponent(lovedNames||'my%20loved%20one')}">✉️ Message the team</a>
+        <button class="btn primary" onclick="tab='messages';renderApp()">✉️ Message the team</button>
         <a class="btn" href="mailto:hello@mycompanio.co.uk?subject=${encodeURIComponent('Special request for '+(lovedNames||'my loved one'))}&body=${encodeURIComponent('I\'d like to arrange something special:\n\n(e.g. a birthday visit, an outing, accompanying to an appointment)\n\n')}">✨ Request an outing or occasion</a>
       </div>
     </div></div>`;
@@ -258,6 +264,51 @@ function viewMemories(){
     out+=`</div>`;
   });
   return out;
+}
+
+// In-portal messaging with the Companio team.
+function viewMessages(){
+  const thread=(MESSAGES||[]).slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+  // mark team messages read (fire and forget)
+  if(MSG_UNREAD>0 && typeof markMessagesRead==='function') markMessagesRead();
+  const bubbles = thread.length ? thread.map(m=>{
+    const mine = m.sender==='family';
+    return `<div class="msg-row ${mine?'mine':'theirs'}">
+      <div class="msg-bubble ${mine?'mine':'theirs'}">
+        ${!mine?`<div class="msg-who">${m.staff_name||'Companio team'}</div>`:''}
+        <div>${(m.body||'').replace(/</g,'&lt;')}</div>
+        <div class="msg-time">${fmt(m.created_at)}</div>
+      </div></div>`;
+  }).join('') : `<div class="empty">No messages yet. Send us anything — a question, a request, or just to say hello. We’re always happy to hear from you.</div>`;
+  return `<div class="panel"><div class="panel-h"><h3>Messages with the Companio team</h3></div>
+    <div class="msg-thread" id="msgThread">${bubbles}</div>
+    <div class="msg-compose">
+      <textarea id="msgBox" rows="2" placeholder="Write a message…" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;resize:none"></textarea>
+      <button class="btn primary" onclick="sendMessage()">Send</button>
+    </div></div>`;
+}
+
+async function sendMessage(){
+  const box=document.getElementById('msgBox'); if(!box) return;
+  const body=box.value.trim(); if(!body) return;
+  box.value='';
+  const msg={requester_id:ME.id,sender:'family',body:body};
+  if(typeof IS_LIVE!=='undefined' && IS_LIVE){
+    try{ const saved=await supa.insert('messages',msg); MESSAGES.push(saved||Object.assign({created_at:new Date().toISOString()},msg)); }
+    catch(e){ alert('Could not send: '+e.message); return; }
+  } else {
+    MESSAGES.push(Object.assign({id:'m'+Date.now(),created_at:new Date().toISOString()},msg));
+  }
+  renderApp();
+  setTimeout(()=>{ const t=document.getElementById('msgThread'); if(t) t.scrollTop=t.scrollHeight; },50);
+}
+
+async function markMessagesRead(){
+  const unread=(MESSAGES||[]).filter(m=>m.sender==='team' && !m.read_by_family);
+  MSG_UNREAD=0;
+  if(typeof IS_LIVE!=='undefined' && IS_LIVE){
+    for(const m of unread){ try{ await supa.update('messages',m.id,{read_by_family:true}); m.read_by_family=true; }catch(e){} }
+  }
 }
 
 function viewLoved(){

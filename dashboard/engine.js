@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v16 (overtime)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v16';
+console.log('%cCompanio operator dashboard — BUILD v17 (messaging+seo)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v17';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -38,6 +38,7 @@ const DB = {
   wellbeing_checkins: [],
   invoice_lines: [],
   interviews: [],
+  messages: [],
 };
 
 /* ---------- MATCHING (mirror of sql match_score) ---------- */
@@ -96,6 +97,7 @@ const TABS=[
   {id:'schedule',ico:'▦',label:'Schedule'},
   {id:'bookings',ico:'✦',label:'Bookings'},
   {id:'visits',ico:'✓',label:'Visits & Notes'},
+  {id:'messages',ico:'✉',label:'Messages'},
   {id:'safeguarding',ico:'⚑',label:'Safeguarding'},
   {id:'finance',ico:'£',label:'Finance'},
   {id:'reports',ico:'▲',label:'Reports'},
@@ -201,6 +203,7 @@ function render(){
   else if(current==='requesters') v.innerHTML=viewRequesters();
   else if(current==='bookings') v.innerHTML=viewBookings();
   else if(current==='visits') v.innerHTML=viewVisits();
+  else if(current==='messages') v.innerHTML=viewOpsMessages();
   else if(current==='safeguarding') v.innerHTML=viewSafeguarding();
   else if(current==='finance') v.innerHTML=viewFinance();
   else if(current==='reports') v.innerHTML=viewReports();
@@ -570,6 +573,84 @@ function viewVisits(){
   return head('Delivery','Visits & Notes','Every visit ends with a warm note to the family — the promise that keeps requesters reassured.')+`
   <div class="panel"><div class="panel-h"><h3>Visits</h3></div><div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th><th>Overtime</th></tr></thead><tbody>${rows}</tbody></table></div></div>
   <div class="panel"><div class="panel-h"><h3>Recent notes to family</h3></div><div class="panel-b" style="padding:16px 20px">${notes||'<div class="empty">No notes yet.</div>'}</div></div>`;
+}
+
+/* ---------- OPERATOR MESSAGES INBOX ---------- */
+let _openThread=null;
+function viewOpsMessages(){
+  const msgs=DB.messages||[];
+  // group by requester, newest activity first
+  const threads={};
+  msgs.forEach(m=>{ (threads[m.requester_id]=threads[m.requester_id]||[]).push(m); });
+  const threadList=Object.keys(threads).map(rid=>{
+    const list=threads[rid].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const last=list[list.length-1];
+    const r=DB.requesters.find(x=>x.id===rid);
+    const unread=list.filter(m=>m.sender==='family' && !m.read_by_team).length;
+    return {rid,name:r?r.full_name:'Family',last,unread,count:list.length};
+  }).sort((a,b)=>new Date(b.last.created_at)-new Date(a.last.created_at));
+
+  const totalUnread=threadList.reduce((s,t)=>s+t.unread,0);
+  if(!threadList.length){
+    return head('Conversations','Messages','Messages from families land here. You can reply directly — they see it in their portal.')+
+      `<div class="panel"><div class="empty">No messages yet. When a family writes from their portal, the conversation appears here.</div></div>`;
+  }
+
+  // if a thread is open, show it; else show the list
+  if(_openThread && threads[_openThread]){
+    const list=threads[_openThread].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const r=DB.requesters.find(x=>x.id===_openThread);
+    const bubbles=list.map(m=>{
+      const team=m.sender==='team';
+      return `<div class="msg-row ${team?'mine':'theirs'}"><div class="msg-bubble ${team?'mine':'theirs'}">
+        ${team&&m.staff_name?`<div class="msg-who">${m.staff_name}</div>`:''}
+        <div>${(m.body||'').replace(/</g,'&lt;')}</div>
+        <div class="msg-time">${fmt(m.created_at)}</div></div></div>`;
+    }).join('');
+    // mark family messages read
+    markOpsThreadRead(_openThread);
+    return head('Conversations','Messages','Reply to families directly — they see it in their portal.')+`
+      <button class="btn sm" onclick="_openThread=null;render()">← All conversations</button>
+      <div class="panel" style="margin-top:12px"><div class="panel-h"><h3>${r?r.full_name:'Family'}</h3></div>
+        <div class="msg-thread" id="opsThread">${bubbles}</div>
+        <div class="msg-compose">
+          <textarea id="opsMsgBox" rows="2" placeholder="Write a reply…" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;resize:none"></textarea>
+          <button class="btn primary" onclick="sendOpsReply('${_openThread}')">Send</button>
+        </div></div>`;
+  }
+
+  const rows=threadList.map(t=>`<div class="row" style="padding:13px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);cursor:pointer" onclick="_openThread='${t.rid}';render()">
+    <div style="flex:1"><span class="name">${t.name}</span>
+      <div class="sub2" style="max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.last.sender==='team'?'You: ':''}${(t.last.body||'').replace(/</g,'&lt;')}</div></div>
+    <div style="text-align:right"><div class="sub2">${fmt(t.last.created_at)}</div>${t.unread?`<span class="chip warn">${t.unread} new</span>`:''}</div>
+  </div>`).join('');
+  return head('Conversations','Messages',`Messages from families. ${totalUnread?`${totalUnread} unread.`:'All caught up.'}`)+`
+    <div class="panel"><div class="panel-b">${rows}</div></div>`;
+}
+
+async function sendOpsReply(rid){
+  const box=document.getElementById('opsMsgBox'); if(!box) return;
+  const body=box.value.trim(); if(!body) return;
+  box.value='';
+  const me=(typeof SB!=='undefined' && SB.staffName)|| 'Companio team';
+  const msg={requester_id:rid,sender:'team',body:body,staff_name:me,read_by_team:true};
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.insert('messages',msg); await loadAll(DB); }
+    catch(e){ alert('Could not send: '+e.message); return; }
+  } else {
+    DB.messages=DB.messages||[];
+    DB.messages.push(Object.assign({id:'m'+Date.now(),created_at:new Date().toISOString()},msg));
+  }
+  render();
+  setTimeout(()=>{ const t=document.getElementById('opsThread'); if(t) t.scrollTop=t.scrollHeight; },50);
+}
+
+async function markOpsThreadRead(rid){
+  const unread=(DB.messages||[]).filter(m=>m.requester_id===rid && m.sender==='family' && !m.read_by_team);
+  if(!unread.length) return;
+  if(typeof api!=='undefined' && api.live){
+    for(const m of unread){ try{ await supa.update('messages',m.id,{read_by_team:true}); m.read_by_team=true; }catch(e){} }
+  } else { unread.forEach(m=>m.read_by_team=true); }
 }
 
 /* ---------- AI ASSIST (UI layer; dormant unless feature.ai on + configured) ---------- */
