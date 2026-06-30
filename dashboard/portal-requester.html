@@ -40,6 +40,15 @@ h1,h2,h3{font-family:var(--serif);color:var(--aubergine-dark);margin:0}
 .note-card{background:var(--mist);border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin:0 20px 12px}
 .note-card .meta{font-size:.76rem;color:var(--muted);margin-bottom:5px}
 .empty{padding:36px 20px;text-align:center;color:var(--muted)}
+/* Their story — timeline */
+.timeline{position:relative;margin:0 0 8px;padding-left:8px}
+.tl-item{position:relative;padding:0 0 14px 26px}
+.tl-item:before{content:'';position:absolute;left:5px;top:6px;bottom:-8px;width:2px;background:rgba(231,184,106,.4)}
+.tl-item:last-child:before{display:none}
+.tl-dot{position:absolute;left:0;top:5px;width:12px;height:12px;border-radius:50%;background:var(--wheat,#E7B86A);border:2px solid var(--card,#fff);box-shadow:0 0 0 1px rgba(231,184,106,.5)}
+.tl-card{background:var(--card,#fff);border:1px solid var(--line);border-radius:11px;padding:12px 15px;box-shadow:var(--shadow)}
+.tl-meta{font-size:.76rem;color:var(--wheat-deep,#C8943B);font-weight:700;margin-bottom:5px}
+.tl-body{font-size:.92rem;line-height:1.5}
 .btn{font:inherit;font-weight:800;font-size:.85rem;border-radius:9px;padding:8px 15px;border:1.5px solid var(--aubergine);background:transparent;color:var(--aubergine);cursor:pointer}
 .btn.primary{background:var(--wheat);border-color:var(--wheat);color:var(--aubergine-dark)}
 input{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin-top:5px}
@@ -174,8 +183,8 @@ label{font-weight:700;font-size:.85rem;display:block;margin-top:12px}
 </head>
 <body>
 <div id="root"></div>
-<script src="config.js?v=16"></script>
-<script src="supabase.js?v=16"></script>
-<script src="portal-requester.js?v=16"></script>
+<script src="config.js?v=17"></script>
+<script src="supabase.js?v=17"></script>
+<script src="portal-requester.js?v=17"></script>
 </body>
 </html>

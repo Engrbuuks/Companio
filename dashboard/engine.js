@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v15 (interviews)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v15';
+console.log('%cCompanio operator dashboard — BUILD v16 (overtime)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v16';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -553,10 +553,14 @@ function viewVisits(){
       : v.status==='completed'
         ? '<span class="chip good">completed</span>'
         : `<span class="chip">${cap(v.status)}</span>`;
+    const ot = Number(v.overtime_hrs||0)>0
+      ? `<span class="chip ${v.overtime_status==='billed'?'good':v.overtime_status==='waived'?'':'warn'}" title="${v.overtime_reason||''}">+${Number(v.overtime_hrs).toFixed(2).replace(/\.00$/,'')}h ${v.overtime_status||'pending'}</span>`
+      : (v.status==='completed'?`<button class="btn sm" onclick="addOvertimeManual('${v.id}')">+ Log overtime</button>`:'');
     return `<tr><td><div class="name">${u.full_name}</div><div class="sub2">${c?c.full_name:''}</div></td>
       <td>${fmt(v.scheduled_at)}<div class="sub2">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${v.length_hrs}h</div></td>
       <td>${action}</td>
-      <td>${note?'<span class="chip good">note shared</span>':(v.status==='completed'?'<span class="chip warn">note due</span>':'—')}</td></tr>`;
+      <td>${note?'<span class="chip good">note shared</span>':(v.status==='completed'?'<span class="chip warn">note due</span>':'—')}</td>
+      <td>${ot}</td></tr>`;
   }).join('');
   const notes=DB.visit_notes.map(n=>{
     const v=DB.visits.find(x=>x.id===n.visit_id);const b=DB.bookings.find(x=>x.id===v.booking_id);
@@ -564,7 +568,7 @@ function viewVisits(){
     return `<div class="note-card"><div class="meta"><b>${u.full_name}</b> · ${c.full_name} · ${fmt(n.created_at)} ${n.shared_with_family?'· <span style="color:var(--good)">shared with family</span>':''}</div>${n.summary}</div>`;
   }).join('');
   return head('Delivery','Visits & Notes','Every visit ends with a warm note to the family — the promise that keeps requesters reassured.')+`
-  <div class="panel"><div class="panel-h"><h3>Visits</h3></div><div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h3>Visits</h3></div><div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th><th>Overtime</th></tr></thead><tbody>${rows}</tbody></table></div></div>
   <div class="panel"><div class="panel-h"><h3>Recent notes to family</h3></div><div class="panel-b" style="padding:16px 20px">${notes||'<div class="empty">No notes yet.</div>'}</div></div>`;
 }
 
@@ -647,6 +651,7 @@ function viewFinance(){
     </div></div>
   <div class="panel"><div class="panel-h"><h3>Companion earnings & payouts</h3></div>
     <div class="panel-b"><table><thead><tr><th>Companion</th><th>Pending</th><th>Paid</th><th>Lifetime</th><th>Payout</th></tr></thead><tbody>${earnRows}</tbody></table></div></div>
+  ${overtimeReviewPanel()}
   <div class="panel"><div class="panel-h"><h3>Invoices to families</h3><button class="btn sm primary" onclick="createInvoice()">+ Create invoice</button></div>
     <div class="panel-b"><table><thead><tr><th>Invoice</th><th>Family</th><th>Total</th><th>Paid</th><th>Status</th><th>Actions</th></tr></thead><tbody>
     ${DB.invoices.map(i=>{
@@ -672,6 +677,104 @@ function viewFinance(){
         scales:{y:{beginAtZero:true,ticks:{callback:v=>'£'+v}},x:{grid:{display:false}}},animation:{duration:700}}});});
   return out;
 }
+
+/* ---------- OVERTIME REVIEW (operator decides per-instance) ---------- */
+function overtimeReviewPanel(){
+  const pending=(DB.visits||[]).filter(v=>Number(v.overtime_hrs||0)>0 && (v.overtime_status||'pending')==='pending')
+    .sort((a,b)=>new Date(b.scheduled_at)-new Date(a.scheduled_at));
+  const byUser={};
+  (DB.visits||[]).filter(v=>Number(v.overtime_hrs||0)>0).forEach(v=>{
+    const bk=DB.bookings.find(b=>b.id===v.booking_id); const uid=bk?bk.service_user_id:null;
+    if(uid) byUser[uid]=(byUser[uid]||0)+1;
+  });
+  if(!pending.length){
+    return `<div class="panel"><div class="panel-h"><h3>Overtime to review</h3><span class="chip good">none pending</span></div>
+      <div class="empty">When a visit runs over its planned time, it appears here for you to bill, waive, or flag — never charged automatically.</div></div>`;
+  }
+  const rows=pending.map(v=>{
+    const bk=DB.bookings.find(b=>b.id===v.booking_id);
+    const u=bk?DB.service_users.find(x=>x.id===bk.service_user_id):null;
+    const c=DB.companions.find(x=>x.id===v.companion_id);
+    const recur=bk && byUser[bk.service_user_id]>=3;
+    return `<tr>
+      <td class="name">${u?u.full_name:'—'}${recur?' <span class="chip warn" title="Repeated overtime — consider a plan upgrade">pattern</span>':''}</td>
+      <td>${c?c.full_name:'—'}</td>
+      <td>${fmt(v.scheduled_at)}</td>
+      <td><b>+${Number(v.overtime_hrs).toFixed(2).replace(/\.00$/,'')}h</b></td>
+      <td class="muted" style="max-width:200px">${v.overtime_reason||'—'}</td>
+      <td>
+        <button class="btn sm primary" onclick="billOvertime('${v.id}')">Bill</button>
+        <button class="btn sm" onclick="waiveOvertime('${v.id}')">Waive</button>
+        ${recur?`<button class="btn sm" onclick="flagUpgrade('${v.id}')" title="Flag for a plan-upgrade conversation">Upgrade?</button>`:''}
+      </td></tr>`;
+  }).join('');
+  const totalHrs=pending.reduce((s,v)=>s+Number(v.overtime_hrs||0),0);
+  return `<div class="panel" style="border-color:var(--wheat)"><div class="panel-h"><h3>Overtime to review</h3>
+    <span class="chip warn">${pending.length} visit${pending.length>1?'s':''} · ${totalHrs.toFixed(2).replace(/\.00$/,'')}h</span></div>
+    <div class="panel-b"><table><thead><tr><th>Loved one</th><th>Companion</th><th>Visit</th><th>Over</th><th>Reason</th><th>Decision</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <p class="muted" style="font-size:.8rem;margin:10px 14px 0">“Bill” adds the extra hours to a new draft invoice for that family. “Waive” records it as on-the-house. “Upgrade?” appears when a family runs over repeatedly — a signal they may need a bigger plan.</p></div></div>`;
+}
+
+async function billOvertime(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  const bk=DB.bookings.find(b=>b.id===v.booking_id); if(!bk){ alert('No booking found for this visit'); return; }
+  const reqId=bk.requester_id; const u=DB.service_users.find(x=>x.id===bk.service_user_id);
+  const hrs=Number(v.overtime_hrs||0);
+  const rate=Number((DB.rates&&DB.rates.rate_both)||34);
+  const amount=Math.round(hrs*rate*100)/100;
+  if(!confirm(`Bill ${hrs}h overtime for ${u?u.full_name:'this family'} at £${rate}/h = £${amount.toFixed(2)}?\n\nThis creates a draft invoice you can review and send.`)) return;
+  if(typeof api!=='undefined' && api.live){
+    try{
+      const inv=await supa.rpc('generate_invoice',{p_requester:reqId});
+      const invId=inv&&inv.id?inv.id:(Array.isArray(inv)?inv[0]:inv);
+      await supa.insert('invoice_lines',{invoice_id:invId,description:`Additional companionship hours — ${u?u.full_name:''} (${fmt(v.scheduled_at)})`,quantity:hrs,unit_price:rate,amount:amount});
+      await supa.update('invoices',invId,{total:amount});
+      await supa.update('visits',visitId,{overtime_status:'billed',overtime_invoice_id:invId});
+      await loadAll(DB);
+    }catch(e){ alert('Could not bill: '+e.message); return; }
+  } else {
+    v.overtime_status='billed';
+    DB.invoices=DB.invoices||[];
+    DB.invoices.unshift({id:'inv'+Date.now(),requester_id:reqId,number:'CMP-DRAFT',status:'draft',total:amount,amount_paid:0});
+  }
+  cmpToast(`Overtime billed · draft invoice for £${amount.toFixed(2)} created`,'ok'); render();
+}
+
+async function waiveOvertime(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  if(!confirm('Waive this overtime (on the house)? It stays recorded but won’t be billed.')) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('visits',visitId,{overtime_status:'waived'}); await loadAll(DB); }
+    catch(e){ alert('Could not waive: '+e.message); return; }
+  } else { v.overtime_status='waived'; }
+  cmpToast('Overtime waived — a nice touch for the family','ok'); render();
+}
+
+async function flagUpgrade(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  const bk=DB.bookings.find(b=>b.id===v.booking_id);
+  const u=bk?DB.service_users.find(x=>x.id===bk.service_user_id):null;
+  if(!confirm(`Flag ${u?u.full_name:'this family'} for a plan-upgrade conversation?\n\nThey’ve run over repeatedly — they may be happier (and better served) on a larger plan.`)) return;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('visits',visitId,{overtime_status:'upgrade_flag'}); await loadAll(DB); }
+    catch(e){ alert('Could not flag: '+e.message); return; }
+  } else { v.overtime_status='upgrade_flag'; }
+  cmpToast('Flagged for upgrade conversation','ok'); render();
+}
+
+async function addOvertimeManual(visitId){
+  const v=DB.visits.find(x=>x.id===visitId); if(!v) return;
+  const extra=prompt('Record overtime for this visit — how many extra hours? (e.g. 1 or 0.5)','1');
+  const n=parseFloat(extra); if(isNaN(n)||n<=0) return;
+  const reason=prompt('Reason (optional):','')||null;
+  if(typeof api!=='undefined' && api.live){
+    try{ await supa.update('visits',visitId,{overtime_hrs:n,overtime_reason:reason,overtime_status:'pending'}); await loadAll(DB); }
+    catch(e){ alert('Could not add: '+e.message); return; }
+  } else { v.overtime_hrs=n; v.overtime_reason=reason; v.overtime_status='pending'; }
+  cmpToast(`${n}h overtime recorded — review it in Finance`,'ok'); render();
+}
+
 async function runPayout(name){
   const c=DB.companions.find(x=>x.full_name===name); if(!c) return;
   if(typeof api!=='undefined' && api.live){

@@ -94,6 +94,7 @@ function renderApp(){
       <button data-t="home" class="${tab==='home'?'on':''}">Home</button>
       <button data-t="loved" class="${tab==='loved'?'on':''}">Loved ones</button>
       <button data-t="notes" class="${tab==='notes'?'on':''}">Notes from visits</button>
+      <button data-t="memories" class="${tab==='memories'?'on':''}">Their story</button>
       <button data-t="visits" class="${tab==='visits'?'on':''}">Schedule</button>
       <button data-t="bills" class="${tab==='bills'?'on':''}">Billing</button>
     </div>
@@ -104,7 +105,7 @@ function renderApp(){
 }
 function renderTab(){
   const v=$('#tabview');
-  v.innerHTML = tab==='home'?viewHome() : tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='visits'?viewVisits() : viewBills();
+  v.innerHTML = tab==='home'?viewHome() : tab==='loved'?viewLoved() : tab==='notes'?viewNotes() : tab==='memories'?viewMemories() : tab==='visits'?viewVisits() : viewBills();
 }
 
 function viewHome(){
@@ -174,14 +175,21 @@ function viewHome(){
       wbGlance=`<div style="padding:0 20px 14px"><span class="chip ${chip}">Wellbeing: ${label}</span></div>`;
     }
     if(comp){
-      out+=`<div class="panel"><div class="panel-h"><h3>${u.full_name.split(' ')[0]}’s companion</h3></div>
+      const since=comp.since?new Date(comp.since):null;
+      const weeks=since?Math.max(1,Math.floor((Date.now()-since.getTime())/(7*86400000))):0;
+      const continuity = since ? (weeks>=1?`Your companion for ${weeks} week${weeks>1?'s':''}`:'Newly matched') : '';
+      const interests=(comp.shared_interests&&comp.shared_interests.length)?comp.shared_interests:[];
+      out+=`<div class="panel"><div class="panel-h"><h3>${u.full_name.split(' ')[0]}’s companion</h3>${continuity?`<span class="chip good">${continuity}</span>`:''}</div>
         <div class="row" style="padding:16px 20px">
-          <div style="display:flex;gap:14px;align-items:center">
-            <div style="width:54px;height:54px;border-radius:50%;flex:0 0 auto;background:${comp.companion_photo?`url('${comp.companion_photo}') center/cover`:'var(--wheat,#E7B86A)'};display:grid;place-items:center;font-weight:800;color:#322E3D;font-family:var(--serif,serif)">${comp.companion_photo?'':(comp.companion_name||'?').split(' ').map(x=>x[0]).slice(0,2).join('')}</div>
+          <div style="display:flex;gap:14px;align-items:flex-start">
+            <div style="width:58px;height:58px;border-radius:50%;flex:0 0 auto;background:${comp.companion_photo?`url('${comp.companion_photo}') center/cover`:'var(--wheat,#E7B86A)'};display:grid;place-items:center;font-weight:800;color:#322E3D;font-family:var(--serif,serif)">${comp.companion_photo?'':(comp.companion_name||'?').split(' ').map(x=>x[0]).slice(0,2).join('')}</div>
             <div style="flex:1">
-              <div class="name" style="font-size:1.05rem">${comp.companion_name}</div>
+              <div class="name" style="font-size:1.08rem">${comp.companion_name}</div>
               ${comp.companion_bio?`<div class="muted" style="font-size:.88rem;margin-top:2px">${comp.companion_bio}</div>`:''}
-              ${(comp.shared_interests&&comp.shared_interests.length)?`<div style="margin-top:6px;font-size:.82rem">In common: ${comp.shared_interests.map(i=>`<span class="chip">${i}</span>`).join(' ')}</div>`:''}
+              ${interests.length?`<div style="margin-top:10px;padding:10px 12px;background:var(--mist,#faf7f2);border-radius:10px">
+                <div style="font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--wheat-deep,#C8943B);font-weight:700;margin-bottom:5px">Why we matched them</div>
+                <div style="font-size:.86rem">${comp.companion_name.split(' ')[0]} and ${u.full_name.split(' ')[0]} share a love of ${interests.slice(0,3).map(i=>`<b>${i}</b>`).join(', ').replace(/, ([^,]*)$/,' and $1')} — a natural starting point for real friendship.</div>
+              </div>`:''}
             </div>
           </div>
         </div>${wbGlance}</div>`;
@@ -199,16 +207,56 @@ function viewHome(){
       </div></div>`;
   }
 
-  // ---- Contact / reach us ----
+  // ---- Contact / reach us + concierge ----
   out+=`<div class="panel"><div class="panel-h"><h3>Anything on your mind?</h3></div>
     <div style="padding:16px 20px">
       <p class="muted" style="margin:0 0 12px">We’re here whenever you need us — a question, a change to the schedule, or just to talk something through.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <a class="btn primary" href="mailto:hello@mycompanio.co.uk?subject=A%20message%20about%20${encodeURIComponent(lovedNames||'my%20loved%20one')}">✉️ Message the team</a>
-        <button class="btn" onclick="tab='visits';renderApp()">View schedule</button>
+        <a class="btn" href="mailto:hello@mycompanio.co.uk?subject=${encodeURIComponent('Special request for '+(lovedNames||'my loved one'))}&body=${encodeURIComponent('I\'d like to arrange something special:\n\n(e.g. a birthday visit, an outing, accompanying to an appointment)\n\n')}">✨ Request an outing or occasion</a>
       </div>
     </div></div>`;
 
+  return out;
+}
+
+// Their story — a warm, running timeline of visits the family can read.
+// Built from shared visit notes; this is the emotional heart of the service.
+function viewMemories(){
+  const shared=(NOTES||[]).slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  if(!shared.length){
+    return `<div class="panel"><div class="panel-h"><h3>Their story</h3></div>
+      <div class="empty">As visits happen, the moments your loved one shares with their companion — the chats, the outings, the small joys — will gather here, like a little diary of their friendship.</div></div>`;
+  }
+  // group by month for a gentle timeline feel
+  const groups={};
+  shared.forEach(n=>{
+    const d=new Date(n.created_at);
+    const key=d.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+    (groups[key]=groups[key]||[]).push(n);
+  });
+  let out=`<div class="panel" style="background:linear-gradient(165deg,#fff,var(--mist,#faf7f2));border:1px solid rgba(231,184,106,.4)">
+    <div style="padding:20px 22px">
+      <h2 style="margin:0 0 4px;font-family:var(--serif,serif)">Their story so far</h2>
+      <p class="muted" style="margin:0">A gathering of moments from ${USERS.map(u=>u.full_name.split(' ')[0]).join(' & ')||'your loved one'}’s visits — the conversations, outings and small joys that make a friendship.</p>
+    </div></div>`;
+
+  Object.keys(groups).forEach(month=>{
+    out+=`<div style="margin:18px 0 8px;padding:0 4px"><span style="font-family:var(--serif,serif);font-size:1.05rem;color:var(--aubergine-dark,#322E3D)">${month}</span></div>`;
+    out+=`<div class="timeline">`;
+    groups[month].forEach(n=>{
+      const d=new Date(n.created_at);
+      const day=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric'});
+      out+=`<div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-card">
+          <div class="tl-meta">${day} · with ${n.companion_name||'their companion'}</div>
+          <div class="tl-body">${n.summary}</div>
+        </div>
+      </div>`;
+    });
+    out+=`</div>`;
+  });
   return out;
 }
 

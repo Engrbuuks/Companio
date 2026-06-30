@@ -5,8 +5,8 @@
    scoping server-side; this is the friendly face of it.
    Demo mode (no creds) shows one sample companion's view.
    ============================================================ */
-console.log('%cCompanio companion portal — BUILD v15 (interviews)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v15';
+console.log('%cCompanio companion portal — BUILD v16 (overtime)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v16';
 const $=(s,el=document)=>el.querySelector(s);
 const fmt=d=>new Date(d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 const fmtTime=d=>new Date(d).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -393,6 +393,9 @@ function openNote(visitId,userName){
     <div class="panel-h"><h3>Note to ${userName}’s family</h3></div>
     <div style="padding:16px 20px">
       <p class="muted" style="margin-top:0;font-size:.88rem">A warm, brief update on how the visit went. The family will read this — keep it kind and specific. Nothing medical.${aiBtn?' Jot rough notes and tap ✨ AI draft to shape them — you can edit before sending.':''}</p>
+      <div style="background:var(--mist,#faf7f2);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:.82rem">
+        <b style="color:var(--wheat-deep,#C8943B)">💛 Capture a little moment</b> — a story they told, something that made them smile, a small win. These become a treasured timeline of their friendship that the family can look back on.
+      </div>
       <textarea id="noteText" rows="4" placeholder="e.g. crossword, two teas, talked about the garden…"></textarea>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn primary" onclick="saveNote('${visitId}')">Send to family</button>
@@ -430,11 +433,41 @@ async function checkIn(visitId){
 async function checkOut(visitId){
   const v=VISITS.find(x=>x.id===visitId); if(!v) return;
   if(!await cmpConfirm('Mark this visit as finished? The family will see it’s complete, and you can write them a note next.',{title:'Finish visit',okText:'Mark finished'})) return;
+
+  // capture overtime: did it run past the planned length?
+  let overtimeHrs=0, overtimeReason=null;
+  const planned=Number(v.length_hrs||v.length||2);
+  // if we have a check-in time, estimate actual length now
+  if(v.checked_in_at){
+    const mins=(Date.now()-new Date(v.checked_in_at).getTime())/60000;
+    const actual=Math.round((mins/60)*4)/4;
+    const over=actual-planned;
+    if(over>=0.5){ // genuinely over (15-min tolerance handled server-side; ask at 30+)
+      const stayed=await cmpConfirm(`This visit was planned for ${planned}h. It looks like you stayed about ${actual}h — roughly ${over.toFixed(2).replace(/\.00$/,'')}h longer. Shall we record that you ran over?`,{title:'Did this visit run over?',okText:'Yes, record it',cancelText:'No, it was fine'});
+      if(stayed){ overtimeHrs=over; overtimeReason=prompt('Quick reason (optional) — helps the office decide on billing:','')||null; }
+    }
+  } else {
+    // no check-in tracked — offer a manual "ran over by" tap
+    const ranOver=await cmpConfirm('Did this visit run longer than planned?',{title:'Finish visit',okText:'Yes, it ran over',cancelText:'No, on time'});
+    if(ranOver){
+      const extra=prompt('About how much longer, in hours? (e.g. 1 or 0.5)','1');
+      const n=parseFloat(extra); if(!isNaN(n)&&n>0){ overtimeHrs=n; overtimeReason=prompt('Quick reason (optional):','')||null; }
+    }
+  }
+
   if(typeof IS_LIVE!=='undefined' && IS_LIVE){
-    try{ await supa.rpc('check_out_visit',{p_visit:visitId}); }catch(e){ alert('Could not finish: '+e.message); return; }
+    try{
+      await supa.rpc('check_out_visit',{p_visit:visitId});
+      if(overtimeHrs>0){
+        await supa.update('visits',visitId,{overtime_hrs:overtimeHrs,overtime_reason:overtimeReason,overtime_status:'pending'});
+        try{ await supa.rpc('recompute_overtime',{p_visit:visitId}); }catch(e){}
+      }
+    }catch(e){ alert('Could not finish: '+e.message); return; }
   }
   v.checked_out_at=new Date().toISOString();
   v.status='completed';
+  if(overtimeHrs>0){ v.overtime_hrs=overtimeHrs; v.overtime_reason=overtimeReason; v.overtime_status='pending'; }
+  cmpToast(overtimeHrs>0?`Visit finished · ${overtimeHrs}h overtime noted for the office`:'Visit finished','ok');
   renderTab();
 }
 
