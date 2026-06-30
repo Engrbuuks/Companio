@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v17 (messaging+seo)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v17';
+console.log('%cCompanio operator dashboard — BUILD v18 (search+filters)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v18';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -329,6 +329,42 @@ function viewOverview(){
 }
 
 let compFilter={status:'all', q:''};
+
+// Reusable filter state for the other list views
+let reqFilter={status:'all', q:''};
+let visitFilter={status:'all', q:'', who:'all'};
+let bookingFilter={status:'all', q:''};
+let invFilter={status:'all', q:''};
+
+function filterInvoice(i){
+  const q=(invFilter.q||'').toLowerCase();
+  if(invFilter.status!=='all' && i.status!==invFilter.status) return false;
+  if(q){
+    const r=DB.requesters.find(x=>x.id===i.requester_id);
+    const hay=`${i.number||''} ${r?r.full_name:''}`.toLowerCase();
+    if(!hay.includes(q)) return false;
+  }
+  return true;
+}
+function invoiceCounts(){
+  const c={all:DB.invoices.length};
+  ['draft','sent','paid','overdue','void'].forEach(s=>c[s]=DB.invoices.filter(i=>i.status===s).length);
+  return c;
+}
+
+// Reusable search input + status chips. Returns HTML; each view passes its
+// own state object key, placeholder, statuses, and counts.
+function filterControls(stateName, placeholder, statuses, counts, current){
+  const chips=statuses.filter(s=>s==='all'||counts[s]>0).map(s=>
+    `<button class="btn sm ${current===s?'primary':''}" onclick="${stateName}.status='${s}';render()">${s==='all'?'All':cap(s)} ${counts[s]?`<span class="sub2">(${counts[s]})</span>`:''}</button>`).join(' ');
+  const st=window[stateName]||{};
+  return `<div class="panel-b" style="padding:14px 20px 0">
+    <input type="search" placeholder="${placeholder}" value="${(st.q||'').replace(/"/g,'&quot;')}"
+      oninput="${stateName}.q=this.value;clearTimeout(window._fT);window._fT=setTimeout(render,150)"
+      style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;margin-bottom:12px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${chips}</div>
+  </div>`;
+}
 function gotoCompanions(status){ compFilter.status=status||'all'; compFilter.q=''; current='companions'; renderNav(); render(); }
 function setCompFilter(status){ compFilter.status=status; render(); }
 function viewCompanions(){
@@ -370,7 +406,27 @@ function viewCompanions(){
 }
 
 function viewRequesters(){
-  const blocks=DB.requesters.map(r=>{
+  const q=(reqFilter.q||'').toLowerCase();
+  const memberOf=(rid)=>{ const m=(DB.memberships||[]).find(x=>x.requester_id===rid && x.status!=='canceled'); return m?m.status:null; };
+  let reqs=DB.requesters.filter(r=>{
+    if(reqFilter.status==='member' && !['active','trialing'].includes(memberOf(r.id))) return false;
+    if(reqFilter.status==='awaiting' && memberOf(r.id)!=='incomplete') return false;
+    if(['active','paused'].includes(reqFilter.status) && r.status!==reqFilter.status) return false;
+    if(q){
+      const users=DB.service_users.filter(u=>u.requester_id===r.id);
+      const hay=`${r.full_name} ${r.email||''} ${r.phone||''} ${users.map(u=>u.full_name+' '+(u.city||'')+' '+(u.postcode||'')).join(' ')}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const counts={
+    all:DB.requesters.length,
+    active:DB.requesters.filter(r=>r.status==='active').length,
+    paused:DB.requesters.filter(r=>r.status==='paused').length,
+    member:DB.requesters.filter(r=>['active','trialing'].includes(memberOf(r.id))).length,
+    awaiting:DB.requesters.filter(r=>memberOf(r.id)==='incomplete').length,
+  };
+  const blocks=reqs.map(r=>{
     const users=DB.service_users.filter(u=>u.requester_id===r.id);
     const userCards=users.map(u=>`
       <div class="tree-user row" data-user="${u.id}">
@@ -392,8 +448,10 @@ function viewRequesters(){
       <div class="section-t">Service users (${users.length})</div>
       <div class="tree-users">${userCards}</div>
     </div></div>`;
-  }).join('');
-  return head('Demand','Requesters & Service Users','The buyer and the person who receives visits are usually different people. The requester arranges and pays; the service user gets the company.')+blocks;
+  }).join('')||'<div class="panel"><div class="empty">No families match your search.</div></div>';
+  return head('Demand','Requesters & Service Users','The buyer and the person who receives visits are usually different people. The requester arranges and pays; the service user gets the company.')+
+    `<div class="panel">${filterControls('reqFilter','Search family, service user, town, email, phone…',['all','active','paused','member','awaiting'],counts,reqFilter.status)}
+      <div class="sub2" style="padding:0 20px 12px">Showing ${reqs.length} of ${DB.requesters.length}</div></div>`+blocks;
 }
 
 function requesterLoginBtn(r){
@@ -459,20 +517,41 @@ async function setupMembership(reqId){
 }
 
 function viewBookings(){
-  const rows=DB.bookings.map(b=>{
+  const q=(bookingFilter.q||'').toLowerCase();
+  let list=DB.bookings.filter(b=>{
+    if(['active','paused','ended'].includes(bookingFilter.status) && b.status!==bookingFilter.status) return false;
+    if(bookingFilter.status==='unassigned' && b.companion_id) return false;
+    if(q){
+      const u=DB.service_users.find(x=>x.id===b.service_user_id);
+      const r=DB.requesters.find(x=>x.id===b.requester_id);
+      const c=DB.companions.find(x=>x.id===b.companion_id);
+      const hay=`${u?u.full_name:''} ${r?r.full_name:''} ${c?c.full_name:''} ${b.service||''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const counts={
+    all:DB.bookings.length,
+    active:DB.bookings.filter(b=>b.status==='active').length,
+    paused:DB.bookings.filter(b=>b.status==='paused').length,
+    ended:DB.bookings.filter(b=>b.status==='ended').length,
+    unassigned:DB.bookings.filter(b=>!b.companion_id).length,
+  };
+  const rows=list.map(b=>{
     const u=DB.service_users.find(x=>x.id===b.service_user_id);
     const r=DB.requesters.find(x=>x.id===b.requester_id);
     const c=DB.companions.find(x=>x.id===b.companion_id);
     return `<tr class="row" data-booking="${b.id}" style="cursor:pointer" onclick="openBooking('${b.id}')">
-      <td><div class="name">${u.full_name}</div><div class="sub2">for ${r.full_name}</div></td>
+      <td><div class="name">${u?u.full_name:'—'}</div><div class="sub2">for ${r?r.full_name:'—'}</div></td>
       <td><span class="dot ${b.service}"></span> ${cap(b.service)}</td>
       <td>${cap(b.frequency)}</td>
       <td>${c?c.full_name:'<span class="chip warn">unassigned</span>'}</td>
       <td>£${b.hourly_rate.toFixed(0)}/hr</td>
       <td><span class="chip ${statusChip(b.status)}">${cap(b.status)}</span></td>
-    </tr>`;}).join('');
+    </tr>`;}).join('')||'<tr><td colspan="6"><div class="empty">No bookings match your filters.</div></td></tr>';
   return head('Arrangements','Bookings','An ongoing arrangement: which user, what service, how often, who pays, and which companion delivers it.')+`
-  <div class="panel"><div class="panel-h"><h3>Bookings (${DB.bookings.length})</h3></div>
+  <div class="panel"><div class="panel-h"><h3>Bookings (${list.length}${list.length!==DB.bookings.length?` of ${DB.bookings.length}`:''})</h3></div>
+  ${DB.bookings.length?filterControls('bookingFilter','Search service user, family, companion…',['all','active','paused','ended','unassigned'],counts,bookingFilter.status):''}
   <div class="panel-b">${DB.bookings.length?`<table><thead><tr><th>Service user</th><th>Service</th><th>Frequency</th><th>Companion</th><th>Rate</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No bookings yet. Bookings are created when you introduce a companion to a family from the Requesters tab.</div>'}</div></div>`;
 }
 
@@ -546,32 +625,63 @@ async function setBookingStatus(id,status){
 }
 
 function viewVisits(){
-  const rows=DB.visits.map(v=>{
+  const q=(visitFilter.q||'').toLowerCase();
+  // build a quick lookup of visit -> {u,c,note}
+  const enrich=v=>{
     const b=DB.bookings.find(x=>x.id===v.booking_id);
-    const u=DB.service_users.find(x=>x.id===b.service_user_id);
+    const u=b?DB.service_users.find(x=>x.id===b.service_user_id):null;
     const c=DB.companions.find(x=>x.id===v.companion_id);
     const note=DB.visit_notes.find(n=>n.visit_id===v.id);
+    return {v,u,c,note};
+  };
+  let items=DB.visits.map(enrich).filter(({v,u,c,note})=>{
+    if(visitFilter.status==='scheduled' && v.status!=='scheduled') return false;
+    if(visitFilter.status==='completed' && v.status!=='completed') return false;
+    if(visitFilter.status==='note_due' && !(v.status==='completed' && !note)) return false;
+    if(visitFilter.status==='overtime' && !(Number(v.overtime_hrs||0)>0)) return false;
+    if(visitFilter.who!=='all' && v.companion_id!==visitFilter.who) return false;
+    if(q){ const hay=`${u?u.full_name:''} ${c?c.full_name:''}`.toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  }).sort((a,b)=>new Date(b.v.scheduled_at)-new Date(a.v.scheduled_at));
+
+  const counts={
+    all:DB.visits.length,
+    scheduled:DB.visits.filter(v=>v.status==='scheduled').length,
+    completed:DB.visits.filter(v=>v.status==='completed').length,
+    note_due:DB.visits.filter(v=>v.status==='completed' && !DB.visit_notes.some(n=>n.visit_id===v.id)).length,
+    overtime:DB.visits.filter(v=>Number(v.overtime_hrs||0)>0).length,
+  };
+  // companion picker for the "who" filter
+  const compsWithVisits=[...new Set(DB.visits.map(v=>v.companion_id).filter(Boolean))];
+  const whoOpts=`<option value="all">All companions</option>`+compsWithVisits.map(id=>{
+    const c=DB.companions.find(x=>x.id===id); return c?`<option value="${id}" ${visitFilter.who===id?'selected':''}>${c.full_name}</option>`:'';
+  }).join('');
+
+  const rows=items.map(({v,u,c,note})=>{
     const action = v.status==='scheduled'
       ? `<button class="btn sm primary" onclick="completeVisit('${v.id}')">Mark visit happened</button>`
-      : v.status==='completed'
-        ? '<span class="chip good">completed</span>'
-        : `<span class="chip">${cap(v.status)}</span>`;
+      : v.status==='completed' ? '<span class="chip good">completed</span>'
+      : `<span class="chip">${cap(v.status)}</span>`;
     const ot = Number(v.overtime_hrs||0)>0
       ? `<span class="chip ${v.overtime_status==='billed'?'good':v.overtime_status==='waived'?'':'warn'}" title="${v.overtime_reason||''}">+${Number(v.overtime_hrs).toFixed(2).replace(/\.00$/,'')}h ${v.overtime_status||'pending'}</span>`
       : (v.status==='completed'?`<button class="btn sm" onclick="addOvertimeManual('${v.id}')">+ Log overtime</button>`:'');
-    return `<tr><td><div class="name">${u.full_name}</div><div class="sub2">${c?c.full_name:''}</div></td>
+    return `<tr><td><div class="name">${u?u.full_name:'—'}</div><div class="sub2">${c?c.full_name:''}</div></td>
       <td>${fmt(v.scheduled_at)}<div class="sub2">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})} · ${v.length_hrs}h</div></td>
       <td>${action}</td>
       <td>${note?'<span class="chip good">note shared</span>':(v.status==='completed'?'<span class="chip warn">note due</span>':'—')}</td>
       <td>${ot}</td></tr>`;
-  }).join('');
+  }).join('')||'<tr><td colspan="5"><div class="empty">No visits match your filters.</div></td></tr>';
+
   const notes=DB.visit_notes.map(n=>{
-    const v=DB.visits.find(x=>x.id===n.visit_id);const b=DB.bookings.find(x=>x.id===v.booking_id);
-    const u=DB.service_users.find(x=>x.id===b.service_user_id);const c=DB.companions.find(x=>x.id===n.companion_id);
-    return `<div class="note-card"><div class="meta"><b>${u.full_name}</b> · ${c.full_name} · ${fmt(n.created_at)} ${n.shared_with_family?'· <span style="color:var(--good)">shared with family</span>':''}</div>${n.summary}</div>`;
+    const v=DB.visits.find(x=>x.id===n.visit_id);const b=v?DB.bookings.find(x=>x.id===v.booking_id):null;
+    const u=b?DB.service_users.find(x=>x.id===b.service_user_id):null;const c=DB.companions.find(x=>x.id===n.companion_id);
+    return `<div class="note-card"><div class="meta"><b>${u?u.full_name:''}</b> · ${c?c.full_name:''} · ${fmt(n.created_at)} ${n.shared_with_family?'· <span style="color:var(--good)">shared with family</span>':''}</div>${n.summary}</div>`;
   }).join('');
   return head('Delivery','Visits & Notes','Every visit ends with a warm note to the family — the promise that keeps requesters reassured.')+`
-  <div class="panel"><div class="panel-h"><h3>Visits</h3></div><div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th><th>Overtime</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h3>Visits (${items.length}${items.length!==DB.visits.length?` of ${DB.visits.length}`:''})</h3>
+    <select onchange="visitFilter.who=this.value;render()" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px">${whoOpts}</select></div>
+    ${filterControls('visitFilter','Search by service user or companion…',['all','scheduled','completed','note_due','overtime'],counts,visitFilter.status)}
+    <div class="panel-b"><table><thead><tr><th>Service user</th><th>When</th><th>Status</th><th>Note to family</th><th>Overtime</th></tr></thead><tbody>${rows}</tbody></table></div></div>
   <div class="panel"><div class="panel-h"><h3>Recent notes to family</h3></div><div class="panel-b" style="padding:16px 20px">${notes||'<div class="empty">No notes yet.</div>'}</div></div>`;
 }
 
@@ -733,9 +843,10 @@ function viewFinance(){
   <div class="panel"><div class="panel-h"><h3>Companion earnings & payouts</h3></div>
     <div class="panel-b"><table><thead><tr><th>Companion</th><th>Pending</th><th>Paid</th><th>Lifetime</th><th>Payout</th></tr></thead><tbody>${earnRows}</tbody></table></div></div>
   ${overtimeReviewPanel()}
-  <div class="panel"><div class="panel-h"><h3>Invoices to families</h3><button class="btn sm primary" onclick="createInvoice()">+ Create invoice</button></div>
+  <div class="panel"><div class="panel-h"><h3>Invoices to families${(()=>{const t=DB.invoices.filter(filterInvoice).length;return t!==DB.invoices.length?` (${t} of ${DB.invoices.length})`:` (${DB.invoices.length})`;})()}</h3><button class="btn sm primary" onclick="createInvoice()">+ Create invoice</button></div>
+    ${DB.invoices.length?filterControls('invFilter','Search family or invoice number…',['all','draft','sent','paid','overdue','void'],invoiceCounts(),invFilter.status):''}
     <div class="panel-b"><table><thead><tr><th>Invoice</th><th>Family</th><th>Total</th><th>Paid</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-    ${DB.invoices.map(i=>{
+    ${DB.invoices.filter(filterInvoice).map(i=>{
       const r=DB.requesters.find(x=>x.id===i.requester_id);
       const fam=r?r.full_name:'—';
       const acts=i.status==='void'?'<span class="chip">Void</span>' :
