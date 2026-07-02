@@ -60,6 +60,18 @@ table{width:100%;border-collapse:collapse}
 th{text-align:left;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800;padding:10px 20px;border-bottom:1px solid var(--line)}
 td{padding:12px 20px;border-bottom:1px solid var(--line);vertical-align:middle}
 tr:last-child td{border-bottom:none}
+/* keep everything within the viewport — no horizontal scrollers anywhere */
+table{table-layout:auto;word-break:break-word}
+td,th{overflow-wrap:anywhere}
+@media (max-width:900px){
+  th{padding:8px 12px}
+  td{padding:10px 12px}
+  table{font-size:.9rem}
+}
+@media (max-width:640px){
+  th{padding:7px 9px;font-size:.62rem}
+  td{padding:8px 9px;font-size:.85rem}
+}
 tr.row:hover{background:var(--mist);cursor:pointer}
 .name{font-weight:800;color:var(--aubergine-dark)}
 .sub2{font-size:.82rem;color:var(--muted)}
@@ -281,8 +293,8 @@ body.editing .head::after{content:"✏️ Editing — click any highlighted text
 <div class="drawer-bg" id="drawerBg" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"><div id="drawerContent"></div></aside>
 
-<script src="config.js?v=19"></script>
-<script src="supabase.js?v=19"></script>
-<script src="engine.js?v=19"></script>
+<script src="config.js?v=21"></script>
+<script src="supabase.js?v=21"></script>
+<script src="engine.js?v=21"></script>
 </body>
 </html>

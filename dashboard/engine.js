@@ -4,8 +4,8 @@
    sql/03_functions.sql match_score(). When LIVE, swap the
    data layer for Supabase REST calls (see live() helpers).
    ============================================================ */
-console.log('%cCompanio operator dashboard — BUILD v18 (search+filters)', 'color:#E7B86A;font-weight:bold');
-window.COMPANIO_BUILD = 'v18';
+console.log('%cCompanio operator dashboard — BUILD v20 (no-scroll)', 'color:#E7B86A;font-weight:bold');
+window.COMPANIO_BUILD = 'v20';
 
 /* ---------- DATA (empty for launch — live mode fills from Supabase) ----------
    These arrays are intentionally empty so a logged-out preview and any
@@ -1229,7 +1229,7 @@ function viewPipeline(){
   const recruitingStages=stages.filter(s=>['applicant','vetting'].includes(s.key));
   const cols=recruitingStages.map(st=>{
     const people=DB.companions.filter(c=>c.status===st.key);
-    return `<div style="flex:1;min-width:250px;max-width:420px">
+    return `<div style="min-width:0">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid ${st.accent}">
         <div><div style="font-weight:800;color:var(--aubergine-dark)">${st.label}</div><div class="sub2">${st.hint}</div></div>
         <span class="chip" style="background:${st.accent};color:#fff;border:none;font-weight:800">${people.length}</span></div>
@@ -1301,7 +1301,7 @@ function viewPipeline(){
       <button class="btn sm" onclick="openFollowUp('${f.c.id}')">Update</button>
     </div>`).join('')}</div></div>`:''}
   <div class="panel"><div class="panel-h"><h3>Active recruiting</h3><span class="muted" style="font-size:.82rem">applicants & vetting — tap a card for full profile</span></div>
-  <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;align-items:flex-start;overflow-x:auto">${cols}</div></div></div>
+  <div class="panel-b" style="padding:18px 20px"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:16px;align-items:flex-start">${cols}</div></div></div>
   <div class="panel"><div class="panel-h"><h3>Your roster</h3><span class="muted" style="font-size:.82rem">manage the full list in Companions</span></div>
   <div class="panel-b" style="padding:18px 20px"><div style="display:flex;gap:16px;flex-wrap:wrap">${activePaused}</div></div></div>
   ${(off.length||rejected.length)?`<div class="panel"><div class="panel-h"><h3>Not active</h3></div><div class="panel-b" style="padding:10px 20px">
@@ -1448,15 +1448,15 @@ function viewSchedule(){
   const cols=days.map(d=>{
     const vs=DB.visits.filter(v=>sameDay(d,v.scheduled_at)).sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
     const isToday=sameDay(d,new Date());
-    return `<div style="flex:1;min-width:150px">
-      <div style="font-weight:800;color:${isToday?'var(--wheat-deep)':'var(--aubergine-dark)'};padding:8px;border-bottom:2px solid ${isToday?'var(--wheat)':'var(--line)'};margin-bottom:8px">${dayName(d)}</div>
+    return `<div style="min-width:0">
+      <div style="font-weight:800;color:${isToday?'var(--wheat-deep)':'var(--aubergine-dark)'};padding:8px 4px;border-bottom:2px solid ${isToday?'var(--wheat)':'var(--line)'};margin-bottom:8px;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dayName(d)}</div>
       ${vs.map(v=>{const b=DB.bookings.find(x=>x.id===v.booking_id);const u=b&&DB.service_users.find(x=>x.id===b.service_user_id);const c=DB.companions.find(x=>x.id===v.companion_id);
         const col=v.status==='completed'?'var(--good)':v.status==='cancelled'||v.status==='no_access'?'var(--muted)':'var(--wheat-deep)';
-        return `<div class="ip-card" style="padding:10px 12px;margin-bottom:7px;border-left:3px solid ${col};cursor:pointer" onclick="openVisitOps('${v.id}')">
-          <div style="font-weight:800;font-size:.86rem">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>
-          <div class="sub2">${u?u.full_name:''}</div><div class="sub2" style="color:var(--aubergine)">${c?c.full_name:'unassigned'}</div>
-          ${v.status!=='scheduled'?`<span class="chip" style="margin-top:4px;font-size:.66rem">${cap(v.status)}</span>`:''}
-        </div>`;}).join('')||'<div class="sub2" style="padding:8px;color:var(--line)">—</div>'}
+        return `<div class="ip-card" style="padding:8px 9px;margin-bottom:7px;border-left:3px solid ${col};cursor:pointer;min-width:0" onclick="openVisitOps('${v.id}')">
+          <div style="font-weight:800;font-size:.82rem">${new Date(v.scheduled_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</div>
+          <div class="sub2" style="overflow-wrap:anywhere">${u?u.full_name:''}</div><div class="sub2" style="color:var(--aubergine);overflow-wrap:anywhere">${c?c.full_name:'unassigned'}</div>
+          ${v.status!=='scheduled'?`<span class="chip" style="margin-top:4px;font-size:.62rem">${cap(v.status)}</span>`:''}
+        </div>`;}).join('')||'<div class="sub2" style="padding:6px;color:var(--line)">—</div>'}
     </div>`;
   }).join('');
   return head('Operations','Schedule','Who’s where, when. The core operational view for a visit-based business.')+`
@@ -1464,8 +1464,77 @@ function viewSchedule(){
     <div style="display:flex;gap:8px;align-items:center"><button class="btn sm" onclick="schedWeek--;render()">← Prev</button>
     <button class="btn sm" onclick="schedWeek=0;render()">This week</button>
     <button class="btn sm" onclick="schedWeek++;render()">Next →</button></div>
-    <span class="muted" style="font-size:.85rem">Click a visit to manage it</span></div>
-    <div class="panel-b" style="padding:14px;overflow-x:auto"><div style="display:flex;gap:10px">${cols}</div></div></div>`;
+    <button class="btn sm primary" onclick="openScheduleVisit()">+ Schedule a visit</button></div>
+    <div class="panel-b" style="padding:14px"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">${cols}</div></div></div>`;
+}
+
+// Schedule a single visit: pick booking (family+companion), date, time, length.
+function openScheduleVisit(prefillDate){
+  const activeBookings=DB.bookings.filter(b=>['active','proposed','draft'].includes(b.status));
+  if(!activeBookings.length){
+    cmpModal({title:'No bookings yet',mode:'alert',message:'Visits belong to a booking (an arrangement between a family and a companion). Create a booking first — introduce a companion to a family from the Requesters tab — then you can schedule visits for it.'});
+    return;
+  }
+  const bkOpts=activeBookings.map(b=>{
+    const u=DB.service_users.find(x=>x.id===b.service_user_id);
+    const c=DB.companions.find(x=>x.id===b.companion_id);
+    return `<option value="${b.id}">${u?u.full_name:'?'} · ${c?c.full_name:'unassigned'} (${cap(b.service)})</option>`;
+  }).join('');
+  const defDate=prefillDate||new Date(Date.now()+86400000).toISOString().slice(0,10);
+  openDrawer(`
+    <div class="drawer-h"><div><h2>Schedule a visit</h2>
+      <div style="color:rgba(255,255,255,.6);font-size:.85rem;margin-top:3px">Set the family, companion, date and time</div></div>
+      <button class="x" onclick="closeDrawer()">×</button></div>
+    <div class="drawer-b">
+      <label style="font-weight:700;font-size:.85rem">Booking (family &amp; companion)</label>
+      <select id="sv-booking" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px">${bkOpts}</select>
+      <label style="font-weight:700;font-size:.85rem">Date</label>
+      <input id="sv-date" type="date" value="${defDate}" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="font-weight:700;font-size:.85rem">Time</label>
+      <input id="sv-time" type="time" value="14:00" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="font-weight:700;font-size:.85rem">Length (hours)</label>
+      <input id="sv-len" type="number" step="0.5" min="0.5" value="2" style="width:100%;padding:10px;margin:4px 0 14px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
+      <label style="display:flex;align-items:center;gap:8px;font-size:.88rem;margin-bottom:14px">
+        <input type="checkbox" id="sv-repeat"> Repeat weekly for
+        <input type="number" id="sv-weeks" min="1" max="52" value="4" style="width:60px;padding:6px;border:1px solid var(--line);border-radius:6px"> weeks
+      </label>
+      <div style="display:flex;gap:10px">
+        <button class="btn primary" style="flex:1" onclick="saveScheduledVisit()">Schedule it</button>
+        <button class="btn" onclick="closeDrawer()">Cancel</button>
+      </div>
+    </div>`);
+}
+
+async function saveScheduledVisit(){
+  const bookingId=document.getElementById('sv-booking').value;
+  const date=document.getElementById('sv-date').value;
+  const time=document.getElementById('sv-time').value;
+  const len=parseFloat(document.getElementById('sv-len').value)||2;
+  const repeat=document.getElementById('sv-repeat').checked;
+  const weeks=parseInt(document.getElementById('sv-weeks').value)||4;
+  if(!date||!time){ cmpToast('Pick a date and time','bad'); return; }
+  const b=DB.bookings.find(x=>x.id===bookingId); if(!b){ cmpToast('Pick a booking','bad'); return; }
+  const at=new Date(`${date}T${time}`);
+
+  if(typeof api!=='undefined' && api.live){
+    try{
+      if(repeat){
+        // use the booking's generate_visits RPC starting at this date
+        await supa.rpc('generate_visits',{p_booking:bookingId,p_weeks:weeks,p_first:at.toISOString()});
+      } else {
+        await supa.insert('visits',{booking_id:bookingId,companion_id:b.companion_id,scheduled_at:at.toISOString(),length_hrs:len,status:'scheduled'});
+      }
+      await loadAll(DB);
+    }catch(e){ alert('Could not schedule: '+e.message); return; }
+  } else {
+    const mk=(d)=>({id:'v'+Math.random().toString(36).slice(2),booking_id:bookingId,companion_id:b.companion_id,scheduled_at:d.toISOString(),length_hrs:len,status:'scheduled'});
+    DB.visits=DB.visits||[];
+    if(repeat){ for(let i=0;i<weeks;i++){ const d=new Date(at); d.setDate(at.getDate()+i*7); DB.visits.push(mk(d)); } }
+    else DB.visits.push(mk(at));
+  }
+  closeDrawer();
+  cmpToast(repeat?`${weeks} weekly visits scheduled`:'Visit scheduled','ok');
+  render();
 }
 
 /* ---------- VISIT OPS (complete / cancel / reschedule / reassign) ---------- */
